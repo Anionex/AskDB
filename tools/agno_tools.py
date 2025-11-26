@@ -36,6 +36,8 @@ class DatabaseConnection:
         self._connected = False
         self.safety_manager = SafetyManager()
         self.schema_manager: Optional[SchemaManager] = None
+        self._semantic_search_enabled = os.getenv("ENABLE_SEMANTIC_SEARCH", "false").lower() == "true"
+        self._schema_initialized = False
     
     def connect(self) -> bool:
         """Connect to database using environment variables."""
@@ -61,11 +63,45 @@ class DatabaseConnection:
                 conn.execute(text("SELECT 1"))
             self._connected = True
             logger.info(f"Connected to {db_type} database: {database}")
+            
+            # Initialize schema manager if semantic search is enabled
+            if self._semantic_search_enabled and not self._schema_initialized:
+                self._initialize_schema_manager()
+            
             return True
         except Exception as e:
             logger.error(f"Connection failed: {e}")
             self._connected = False
             raise
+    
+    def _initialize_schema_manager(self):
+        """Initialize schema manager with vector indexing."""
+        if self._schema_initialized:
+            return
+        
+        try:
+            from tools.database import DatabaseTool
+            from tools.schema import SchemaManager
+            
+            logger.info("Initializing schema manager for semantic search...")
+            db_tool = DatabaseTool()
+            if not db_tool.is_connected:
+                db_tool.connect()
+            
+            self.schema_manager = SchemaManager(db_tool)
+            
+            # Build vector index in background (non-blocking)
+            logger.info("Building vector index for semantic table search...")
+            self.schema_manager.build_search_index()
+            
+            self._schema_initialized = True
+            logger.info("✓ Semantic search enabled")
+            
+        except Exception as e:
+            logger.warning(f"Failed to initialize semantic search: {e}")
+            logger.info("Falling back to simple name matching")
+            self.schema_manager = None
+            self._schema_initialized = True  # Mark as attempted
     
     @property
     def is_connected(self) -> bool:
@@ -288,9 +324,12 @@ class DatabaseTools(Toolkit):
     
     def search_tables_by_name(self, search_query: str, top_k: int = 5) -> str:
         """
-        Search for tables using semantic similarity matching.
+        Search for tables using semantic similarity matching (if enabled).
         This is useful when the user's query mentions concepts that might 
         map to table names (e.g., "customer data" → "users" table).
+        
+        Uses all-MiniLM-L6-v2 model for semantic search when ENABLE_SEMANTIC_SEARCH=true.
+        Falls back to simple name matching otherwise.
         
         Args:
             search_query: Natural language description or keyword to search for.
@@ -299,8 +338,8 @@ class DatabaseTools(Toolkit):
         Returns:
             JSON string with matching table names and their relevance scores.
         """
-        # Try to use schema manager for semantic search
-        if db.schema_manager is not None:
+        # Try semantic search if enabled and schema manager is initialized
+        if db._semantic_search_enabled and db.schema_manager is not None:
             try:
                 # Perform semantic search using schema manager
                 relevant_tables = db.schema_manager.find_relevant_tables(
@@ -327,8 +366,18 @@ class DatabaseTools(Toolkit):
                     "search_method": "semantic"
                 }, ensure_ascii=False, indent=2)
             except Exception as e:
-                logger.warning(f"Semantic search failed, falling back to simple matching: {e}")
-                # Fall through to simple name matching
+                 logger.warning(f"Semantic search failed, falling back to simple matching: {e}")
+                 # Fall through to simple name matching
+        elif db._semantic_search_enabled:
+            # Semantic search is enabled but not initialized
+            logger.info("Semantic search enabled but schema manager not initialized. Initializing now...")
+            try:
+                db._initialize_schema_manager()
+                # Retry semantic search after initialization
+                if db.schema_manager is not None:
+                    return self.search_tables_by_name(search_query, top_k)
+            except Exception as e:
+                logger.warning(f"Schema manager initialization failed: {e}")
         
         # Fallback: Simple name-based matching
         # This is used when semantic search is unavailable or fails

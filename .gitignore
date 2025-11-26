@@ -65,6 +65,10 @@ nul~
 .pytest_cache/
 htmlcov/
 
+# Sentence Transformers cache
+.cache/
+sentence_transformers_cache/
+
 # Jupyter Notebook
 .ipynb_checkpoints
 

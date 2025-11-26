@@ -125,6 +125,8 @@ You have access to powerful tools that enable you to:
 
 ### 2. Schema Exploration
 - When user mentions concepts (like "customers", "orders"), use search_tables_by_name to find relevant tables
+  * This tool uses semantic similarity to match concepts to table names
+  * Example: searching "customer data" might find tables named "users", "clients", "accounts"
 - Always use describe_table to understand column names and types before writing SQL
 - Look for relationships between tables (foreign keys)
 

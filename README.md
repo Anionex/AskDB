@@ -61,6 +61,9 @@ DEFAULT_DB_PORT=3306
 DEFAULT_DB_NAME=your_database
 DEFAULT_DB_USER=root
 DEFAULT_DB_PASSWORD=your_password
+
+# 功能开关
+ENABLE_SEMANTIC_SEARCH=false  # 设为 true 启用语义表搜索（all-MiniLM-L6-v2）
 ```
 
 **获取 API Key**: https://makersuite.google.com/app/apikey

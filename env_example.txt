@@ -1,0 +1,63 @@
+# ====================
+# Gemini API Configuration
+# ====================
+# Get your API key from: https://makersuite.google.com/app/apikey
+GEMINI_API_KEY=your_gemini_api_key_here
+GEMINI_MODEL=gemini-2.0-flash-exp
+
+# ====================
+# Database Configuration
+# ====================
+# Supported types: mysql, postgresql, sqlite
+DEFAULT_DB_TYPE=mysql
+DEFAULT_DB_HOST=localhost
+DEFAULT_DB_PORT=3306
+DEFAULT_DB_NAME=your_database_name
+DEFAULT_DB_USER=root
+DEFAULT_DB_PASSWORD=your_password
+
+# For SQLite (uncomment and comment out MySQL config above):
+# DEFAULT_DB_TYPE=sqlite
+# DEFAULT_DB_NAME=data/askdb.db
+
+# For PostgreSQL (uncomment and adjust):
+# DEFAULT_DB_TYPE=postgresql
+# DEFAULT_DB_HOST=localhost
+# DEFAULT_DB_PORT=5432
+# DEFAULT_DB_NAME=your_database_name
+# DEFAULT_DB_USER=postgres
+# DEFAULT_DB_PASSWORD=your_password
+
+# ====================
+# Feature Switches
+# ====================
+
+# Enable semantic table search (uses all-MiniLM-L6-v2 model)
+# Set to "true" to enable vector-based semantic search as described in AskDB paper
+# Set to "false" to use simple name matching (faster, no model download)
+# Default: false
+ENABLE_SEMANTIC_SEARCH=false
+
+# Note: Enabling semantic search will:
+# - Download ~80MB sentence-transformers model on first run
+# - Build vector index for all tables (may take time for large databases)
+# - Enable intelligent table discovery (e.g., "customer" → "users" table)
+
+# ====================
+# Advanced Configuration
+# ====================
+
+# Maximum query complexity score (default: 100)
+MAX_QUERY_COMPLEXITY=100
+
+# Web search provider (default: duckduckgo)
+# Options: duckduckgo, google, bing
+WEB_SEARCH_PROVIDER=duckduckgo
+
+# Google Search API (only if using google provider)
+# GOOGLE_SEARCH_API_KEY=your_google_api_key
+# GOOGLE_SEARCH_ENGINE_ID=your_search_engine_id
+
+# Bing Search API (only if using bing provider)
+# BING_API_KEY=your_bing_api_key
+
