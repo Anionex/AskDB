@@ -11,7 +11,7 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.exc import SQLAlchemyError, OperationalError, ProgrammingError
 from sqlalchemy.orm import sessionmaker, Session
 
-from ..config import DatabaseConfig, get_db_config_manager
+from config import DatabaseConfig, get_db_config_manager
 
 logger = logging.getLogger(__name__)
 

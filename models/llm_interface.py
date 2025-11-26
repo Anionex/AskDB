@@ -28,7 +28,7 @@ try:
 except ImportError:
     OPENAI_AVAILABLE = False
 
-from ..config import get_settings
+from config import get_settings
 
 
 class LLMProvider(Enum):

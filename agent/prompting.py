@@ -13,8 +13,8 @@ from enum import Enum
 from dataclasses import dataclass, field
 import re
 
-from ..config import get_settings
-from ..tools import SchemaManager, DatabaseTool
+from config import get_settings
+from tools import SchemaManager, DatabaseTool
 
 logger = logging.getLogger(__name__)
 

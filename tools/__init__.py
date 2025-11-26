@@ -13,7 +13,7 @@ The tools module is designed to be provider-agnostic and supports multiple datab
 engines and search providers.
 """
 
-from .database import (
+from tools.database import (
     DatabaseTool,
     DatabaseToolManager,
     get_db_tool_manager,
@@ -23,7 +23,7 @@ from .database import (
     DatabaseQueryError
 )
 
-from .schema import (
+from tools.schema import (
     ColumnInfo,
     TableInfo,
     SchemaInfo,
@@ -34,7 +34,7 @@ from .schema import (
     create_schema_manager
 )
 
-from .web_search import (
+from tools.web_search import (
     SearchResult,
     SearchQuery,
     WebSearchTool,
@@ -132,7 +132,7 @@ def initialize_tools(settings=None):
         dict: Dictionary of initialized tool managers
     """
     if settings is None:
-        from ..config import get_settings
+        from config import get_settings
         settings = get_settings()
     
     initialized = {}

@@ -5,8 +5,8 @@ This module provides utility functions and helpers for the AskDB system,
 including logging configuration, helper functions, and common utilities.
 """
 
-from .logging import setup_logging, get_logger, get_log_config, configure_logging
-from .helpers import (
+from utils.logging import setup_logging, get_logger, get_log_config, configure_logging
+from utils.helpers import (
     format_query_result,
     validate_query_input,
     sanitize_sql_query,

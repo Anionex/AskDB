@@ -14,15 +14,15 @@ from typing import Dict, List, Optional, Any, Tuple, Union
 from dataclasses import dataclass, field
 from enum import Enum
 
-from ..config import get_settings, Settings
-from ..tools import (
+from config import get_settings, Settings
+from tools import (
     DatabaseTool, SchemaManager, WebSearchTool,
     get_database_tool, get_schema_manager, get_web_search_tool
 )
-from ..models.llm_interface import LLMInterface, LLMResponse
-from ..models.conversation import ConversationManager, ConversationTurn
-from .prompting import PromptManager, PromptType
-from .safety import SafetyManager, RiskLevel, SafetyCheckResult, SafetyAssessment
+from models.llm_interface import LLMInterface, LLMResponse
+from models.conversation import ConversationManager, ConversationTurn
+from agent.prompting import PromptManager, PromptType
+from agent.safety import SafetyManager, RiskLevel, SafetyCheckResult, SafetyAssessment
 
 logger = logging.getLogger(__name__)
 
@@ -120,7 +120,7 @@ class AskDBAgent:
         """
         self.settings = settings or get_settings()
         # Import here to avoid circular import
-        from ..models.llm_interface import get_llm_interface, create_llm_interface_from_settings
+        from models.llm_interface import get_llm_interface, create_llm_interface_from_settings
         if llm_interface is None:
             llm_interface = get_llm_interface()
             if llm_interface is None:
@@ -319,7 +319,7 @@ class AskDBAgent:
                 logger.warning(f"Could not connect to database: {e}")
         
         # Create PromptContext for SQL generation
-        from .prompting import PromptContext
+        from agent.prompting import PromptContext
         prompt_context = PromptContext(
             user_query=query,
             conversation_history=conversation_context.get("history", []) if conversation_context else [],

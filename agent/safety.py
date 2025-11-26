@@ -17,7 +17,7 @@ from enum import Enum
 from dataclasses import dataclass, field
 from datetime import datetime
 
-from ..config import get_settings
+from config import get_settings
 
 
 class RiskLevel(Enum):

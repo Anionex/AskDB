@@ -23,18 +23,18 @@ from rich.syntax import Syntax
 from rich.markdown import Markdown
 
 # Add the project root to the Python path
-project_root = Path(__file__).parent.parent
-sys.path.insert(0, str(project_root))
+# project_root = Path(__file__).parent.parent
+# sys.path.insert(0, str(project_root))
 
-from askdb.config import get_settings, Settings, DatabaseConfig, DatabaseType
-from askdb.tools import (
+from config import get_settings, Settings, DatabaseConfig, DatabaseType
+from tools import (
     get_database_tool, get_schema_manager, get_web_search_tool,
     setup_database_tool, setup_schema_manager, setup_web_search_tool,
     initialize_tools, get_available_tools
 )
-from askdb.agent import create_agent, get_agent, AskDBAgent
-from askdb.utils.logging import setup_logging, get_logger
-from askdb.utils.helpers import format_query_result, validate_query_input
+from agent import create_agent, get_agent, AskDBAgent
+from utils.logging import setup_logging, get_logger
+from utils.helpers import format_query_result, validate_query_input
 
 
 # Initialize rich console
@@ -195,7 +195,7 @@ def database():
 @click.pass_context
 def list_databases(ctx):
     """List all configured database connections"""
-    from askdb.config.database_configs import get_db_config_manager
+    from config.database_configs import get_db_config_manager
     
     manager = get_db_config_manager()
     configs = manager.list_configs()
@@ -320,7 +320,7 @@ def status(ctx):
     )
     
     # Check database configurations
-    from askdb.config.database_configs import get_db_config_manager
+    from config.database_configs import get_db_config_manager
     db_manager = get_db_config_manager()
     db_configs = db_manager.list_configs()
     db_status = f"✓ {len(db_configs)} configured" if db_configs else "✗ None configured"

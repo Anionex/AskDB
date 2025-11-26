@@ -13,7 +13,7 @@ from enum import Enum
 from typing import List, Dict, Any, Optional, Union
 from datetime import datetime
 
-from ..config import get_settings
+from config import get_settings
 
 
 class MessageRole(Enum):

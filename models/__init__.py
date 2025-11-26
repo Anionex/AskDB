@@ -5,7 +5,7 @@ This module provides the core model interfaces for LLM interaction and conversat
 It includes abstractions for different LLM providers and conversation state management.
 """
 
-from .llm_interface import (
+from models.llm_interface import (
     LLMInterface,
     LLMResponse,
     LLMProvider,
@@ -16,7 +16,7 @@ from .llm_interface import (
     OpenAIInterface
 )
 
-from .conversation import (
+from models.conversation import (
     ConversationManager,
     ConversationTurn,
     ConversationContext,

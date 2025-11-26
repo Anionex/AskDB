@@ -17,8 +17,8 @@ from scipy.spatial.distance import cosine
 from sqlalchemy import inspect, text
 from sqlalchemy.engine import Engine
 
-from .database import DatabaseTool, get_database_tool
-from ..config import get_settings
+from tools.database import DatabaseTool, get_database_tool
+from config import get_settings
 
 logger = logging.getLogger(__name__)
 

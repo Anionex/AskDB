@@ -5,7 +5,7 @@ This module provides the core agent functionality for natural language database 
 It includes the ReAct-based cognitive framework, dynamic prompting, and safety protocols.
 """
 
-from .core import (
+from agent.core import (
     AskDBAgent,
     AgentState,
     ThoughtType,
@@ -14,7 +14,7 @@ from .core import (
     AgentObservation,
     AgentStep
 )
-from .prompting import (
+from agent.prompting import (
     PromptManager,
     PromptTemplate,
     PromptContext,
@@ -22,7 +22,7 @@ from .prompting import (
     get_prompt_manager,
     create_prompt_manager
 )
-from .safety import (
+from agent.safety import (
     SafetyManager,
     PIIDetector,
     SQLInjectionDetector,
@@ -103,9 +103,9 @@ def create_agent(
     Returns:
         Configured AskDBAgent instance
     """
-    from ..config import get_settings
-    from ..tools import get_database_tool, get_schema_manager, get_web_search_tool
-    from ..models.llm_interface import get_llm_interface
+    from config import get_settings
+    from tools import get_database_tool, get_schema_manager, get_web_search_tool
+    from models.llm_interface import get_llm_interface
     
     # Use provided settings or get global settings
     if settings is None:
@@ -122,7 +122,7 @@ def create_agent(
         web_search_tool = get_web_search_tool()
         
     if llm_interface is None:
-        from ..models.llm_interface import get_llm_interface as get_llm, create_llm_interface_from_settings
+        from models.llm_interface import get_llm_interface as get_llm, create_llm_interface_from_settings
         llm_interface = get_llm()
         if llm_interface is None:
             llm_interface = create_llm_interface_from_settings()
