@@ -17,8 +17,7 @@ from scipy.spatial.distance import cosine
 from sqlalchemy import inspect, text
 from sqlalchemy.engine import Engine
 
-from tools.database import DatabaseTool, get_database_tool
-from config import get_settings
+from tools.database import DatabaseTool
 
 logger = logging.getLogger(__name__)
 
@@ -97,14 +96,14 @@ class SchemaInfo:
 class SchemaExplorer:
     """Database schema exploration and analysis."""
     
-    def __init__(self, database_tool: Optional[DatabaseTool] = None):
+    def __init__(self, database_tool: DatabaseTool):
         """
         Initialize schema explorer.
         
         Args:
             database_tool: Database tool instance for schema exploration
         """
-        self.database_tool = database_tool or get_database_tool()
+        self.database_tool = database_tool
         self._schema_cache: Optional[SchemaInfo] = None
     
     def explore_schema(self, force_refresh: bool = False) -> SchemaInfo:
@@ -131,7 +130,8 @@ class SchemaExplorer:
             
             # Get database information
             database_name = self._get_database_name(engine)
-            database_type = str(self.database_tool.config.db_type) if self.database_tool.config else "unknown"
+            # Get database type from engine dialect
+            database_type = engine.dialect.name if engine else "unknown"
             
             # Explore tables
             tables = []
@@ -162,10 +162,11 @@ class SchemaExplorer:
         """Get database name from engine."""
         try:
             if engine.dialect.name == 'postgresql':
-                result = engine.execute(text("SELECT current_database()"))
-                return result.scalar()
+                with engine.connect() as conn:
+                    result = conn.execute(text("SELECT current_database()"))
+                    return result.scalar()
             elif engine.dialect.name == 'mysql':
-                return engine.url.database
+                return engine.url.database or "unknown"
             elif engine.dialect.name == 'sqlite':
                 return Path(engine.url.database).stem if engine.url.database else "memory"
             else:
@@ -470,14 +471,14 @@ class VectorSchemaIndex:
 class SchemaManager:
     """High-level schema management interface."""
     
-    def __init__(self, database_tool: Optional[DatabaseTool] = None):
+    def __init__(self, database_tool: DatabaseTool):
         """
         Initialize schema manager.
         
         Args:
             database_tool: Database tool instance
         """
-        self.database_tool = database_tool or get_database_tool()
+        self.database_tool = database_tool
         self.explorer = SchemaExplorer(self.database_tool)
         self.vector_index = VectorSchemaIndex(self.explorer)
     
@@ -573,18 +574,4 @@ class SchemaManager:
         logger.info(f"Schema exported to {file_path}")
 
 
-# Global schema manager instance
-_schema_manager: Optional[SchemaManager] = None
-
-
-def get_schema_manager(database_tool: Optional[DatabaseTool] = None) -> SchemaManager:
-    """Get global schema manager instance."""
-    global _schema_manager
-    if _schema_manager is None:
-        _schema_manager = SchemaManager(database_tool)
-    return _schema_manager
-
-
-def create_schema_manager(database_tool: DatabaseTool) -> SchemaManager:
-    """Create new schema manager instance."""
-    return SchemaManager(database_tool)
+# Legacy function removed - create SchemaManager directly in Agno version

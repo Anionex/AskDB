@@ -15,7 +15,7 @@ from dataclasses import dataclass
 from urllib.parse import urlencode, quote_plus
 import time
 
-from config import get_settings
+import os
 
 
 logger = logging.getLogger(__name__)
@@ -256,25 +256,22 @@ class WebSearchTool:
     """Main web search tool that manages different search providers."""
     
     def __init__(self, provider: Optional[str] = None, **kwargs):
-        self.settings = get_settings()
-        self.provider_name = provider or self.settings.web_search_provider
+        self.provider_name = provider or os.getenv("WEB_SEARCH_PROVIDER", "duckduckgo")
         self.provider = self._create_provider(**kwargs)
         self._session = None
     
     def _create_provider(self, **kwargs) -> BaseWebSearchProvider:
         """Create search provider based on configuration."""
-        provider_config = self.settings.get_web_search_config()
-        
         if self.provider_name.lower() == "duckduckgo":
             return DuckDuckGoProvider(**kwargs)
         elif self.provider_name.lower() == "google":
-            api_key = provider_config.get("google_api_key")
-            search_engine_id = provider_config.get("google_search_engine_id")
+            api_key = os.getenv("GOOGLE_SEARCH_API_KEY")
+            search_engine_id = os.getenv("GOOGLE_SEARCH_ENGINE_ID")
             if not api_key or not search_engine_id:
                 raise WebSearchError("Google API key and search engine ID required")
             return GoogleSearchProvider(api_key, search_engine_id, **kwargs)
         elif self.provider_name.lower() == "bing":
-            api_key = provider_config.get("bing_api_key")
+            api_key = os.getenv("BING_API_KEY")
             if not api_key:
                 raise WebSearchError("Bing API key required")
             return BingSearchProvider(api_key, **kwargs)
@@ -348,124 +345,4 @@ class WebSearchTool:
         return [result.snippet for result in results]
 
 
-class WebSearchManager:
-    """Manager for web search tools with caching and rate limiting."""
-    
-    def __init__(self):
-        self.tools: Dict[str, WebSearchTool] = {}
-        self.cache: Dict[str, List[SearchResult]] = {}
-        self.cache_ttl = 3600  # 1 hour
-        self.rate_limits: Dict[str, List[float]] = {}
-        self.max_requests_per_minute = 60
-    
-    def add_tool(self, name: str, tool: WebSearchTool):
-        """Add a web search tool."""
-        self.tools[name] = tool
-        logger.info(f"Added web search tool: {name}")
-    
-    def get_tool(self, name: str = "default") -> Optional[WebSearchTool]:
-        """Get web search tool by name."""
-        return self.tools.get(name)
-    
-    def create_tool(self, name: str = "default", provider: Optional[str] = None, **kwargs) -> WebSearchTool:
-        """Create and add a web search tool."""
-        tool = WebSearchTool(provider=provider, **kwargs)
-        self.add_tool(name, tool)
-        return tool
-    
-    async def search_with_cache(self, tool_name: str, query: str, max_results: int = 10, **kwargs) -> List[SearchResult]:
-        """Search with caching support."""
-        cache_key = f"{tool_name}:{query}:{max_results}"
-        
-        # Check cache
-        if cache_key in self.cache:
-            cached_results, timestamp = self.cache[cache_key]
-            if time.time() - timestamp < self.cache_ttl:
-                logger.info(f"Using cached results for query: {query}")
-                return cached_results
-        
-        # Check rate limit
-        if not self._check_rate_limit(tool_name):
-            raise WebSearchError(f"Rate limit exceeded for tool: {tool_name}")
-        
-        # Perform search
-        tool = self.get_tool(tool_name)
-        if not tool:
-            raise WebSearchError(f"Web search tool not found: {tool_name}")
-        
-        results = await tool.search(query, max_results, **kwargs)
-        
-        # Cache results
-        self.cache[cache_key] = (results, time.time())
-        
-        return results
-    
-    def _check_rate_limit(self, tool_name: str) -> bool:
-        """Check if tool is within rate limits."""
-        now = time.time()
-        minute_ago = now - 60
-        
-        # Clean old requests
-        if tool_name in self.rate_limits:
-            self.rate_limits[tool_name] = [
-                req_time for req_time in self.rate_limits[tool_name]
-                if req_time > minute_ago
-            ]
-        else:
-            self.rate_limits[tool_name] = []
-        
-        # Check limit
-        if len(self.rate_limits[tool_name]) >= self.max_requests_per_minute:
-            return False
-        
-        # Add current request
-        self.rate_limits[tool_name].append(now)
-        return True
-    
-    def clear_cache(self):
-        """Clear search cache."""
-        self.cache.clear()
-        logger.info("Web search cache cleared")
-    
-    def get_cache_stats(self) -> Dict[str, Any]:
-        """Get cache statistics."""
-        return {
-            "cache_size": len(self.cache),
-            "cached_queries": list(self.cache.keys()),
-            "rate_limits": {
-                tool: len(requests) 
-                for tool, requests in self.rate_limits.items()
-            }
-        }
-
-
-# Global web search manager
-_web_search_manager: Optional[WebSearchManager] = None
-
-
-def get_web_search_manager() -> WebSearchManager:
-    """Get global web search manager."""
-    global _web_search_manager
-    if _web_search_manager is None:
-        _web_search_manager = WebSearchManager()
-        # Create default tool
-        _web_search_manager.create_tool("default")
-    return _web_search_manager
-
-
-def create_web_search_tool(name: str = "default", provider: Optional[str] = None, **kwargs) -> WebSearchTool:
-    """Create and register a web search tool."""
-    manager = get_web_search_manager()
-    return manager.create_tool(name, provider, **kwargs)
-
-
-def get_web_search_tool(name: str = "default") -> Optional[WebSearchTool]:
-    """Get a registered web search tool."""
-    manager = get_web_search_manager()
-    return manager.get_tool(name)
-
-
-async def web_search(query: str, max_results: int = 10, tool_name: str = "default", **kwargs) -> List[SearchResult]:
-    """Convenience function for web search."""
-    manager = get_web_search_manager()
-    return await manager.search_with_cache(tool_name, query, max_results, **kwargs)
+# Legacy WebSearchManager removed - Agno version creates WebSearchTool directly

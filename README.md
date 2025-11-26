@@ -1,414 +1,397 @@
-# AskDB: LLM-Powered Agent for Natural Language Database Interaction
+# AskDB - 自然语言数据库查询助手
 
-AskDB is a sophisticated LLM-powered database agent that bridges natural language interaction with relational databases through a ReAct-based cognitive framework, dynamic schema-aware prompting, and multi-layered safety protocols.
+<div align="center">
 
-## 🚀 Features
+**基于 Agno 框架的智能数据库助手**
 
-- **ReAct-based Cognitive Framework**: Multi-step reasoning and autonomous SQL debugging
-- **Dynamic Schema-Aware Prompting**: Vector-based semantic table discovery with context-aware prompt generation
-- **Multi-Layered Safety Protocols**: Risk classification, PII detection, and automated guardrails
-- **Multi-Database Support**: PostgreSQL, MySQL, SQLite, SQL Server
-- **Natural Language to SQL**: Conversation context retention and multi-turn interaction
-- **Automated SQL Debugging**: Self-correction capabilities with error analysis
-- **Web Search Integration**: External knowledge retrieval for enhanced query understanding
-- **Comprehensive Evaluation**: Spider benchmark compatibility
-- **Provider-Agnostic LLM Interface**: Gemini integration with extensible architecture
-- **Multiple Interfaces**: CLI and optional web-based user interfaces
+[![Python](https://img.shields.io/badge/Python-3.8+-blue.svg)](https://www.python.org)
+[![Agno](https://img.shields.io/badge/Agno-Framework-green.svg)](https://github.com/agno-agi/agno)
+[![Gemini](https://img.shields.io/badge/Gemini-2.0-orange.svg)](https://ai.google.dev)
 
-## 📋 Requirements
+[快速开始](#快速开始) • [功能特性](#功能特性) • [使用示例](#使用示例) • [架构设计](#架构设计)
 
-### Required Packages
-- `openai>=1.0.0` - OpenAI API integration
-- `google-generativeai>=0.3.0` - Google Gemini models
-- `sqlalchemy>=2.0.0` - Database ORM and connection management
-- `psycopg2-binary>=2.9.0` - PostgreSQL adapter
-- `pymysql>=1.1.0` - MySQL adapter
-- `sentence-transformers>=2.2.0` - Semantic embeddings for schema search
-- `numpy>=1.24.0` - Numerical computations
-- `scipy>=1.10.0` - Scientific computing
-- `pydantic>=2.0.0` - Data validation and settings management
-- `python-dotenv>=1.0.0` - Environment variable management
-- `rich>=13.0.0` - Rich terminal formatting
-- `click>=8.0.0` - CLI framework
-
-### Optional Packages
-- `faiss-cpu>=1.7.0` - Efficient vector similarity search
-- `aiohttp>=3.8.0` - Async web search capabilities
-- `streamlit>=1.28.0` - Web UI option
-- `pytest>=7.0.0` - Testing framework
-- `pytest-asyncio>=0.21.0` - Async testing support
-
-## 🛠️ Installation
-
-1. **Clone the repository**
-   ```bash
-   git clone <repository-url>
-   cd askdb
-   ```
-
-2. **Create virtual environment**
-   ```bash
-   python -m venv askdb_env
-   source askdb_env/bin/activate  # On Windows: askdb_env\Scripts\activate
-   ```
-
-3. **Install dependencies**
-   ```bash
-   pip install -r requirements.txt
-   ```
-
-4. **Configure environment**
-   ```bash
-   cp .env.example .env
-   # Edit .env with your API keys and configurations
-   ```
-
-## ⚙️ Configuration
-
-### Environment Variables
-
-Create a `.env` file with the following variables:
-
-```env
-# LLM Configuration
-OPENAI_API_KEY=your_openai_api_key
-GOOGLE_API_KEY=your_google_api_key
-DEFAULT_LLM_PROVIDER=openai  # or google
-
-# Database Configuration
-DEFAULT_DB_TYPE=postgresql
-DEFAULT_DB_HOST=localhost
-DEFAULT_DB_PORT=5432
-DEFAULT_DB_NAME=your_database
-DEFAULT_DB_USER=your_username
-DEFAULT_DB_PASSWORD=your_password
-
-# Safety Configuration
-ENABLE_SAFETY_CHECKS=true
-MAX_RISK_LEVEL=medium
-LOG_LEVEL=INFO
-
-# Web Search Configuration
-WEB_SEARCH_PROVIDER=duckduckgo
-GOOGLE_SEARCH_API_KEY=your_google_search_api_key
-GOOGLE_SEARCH_ENGINE_ID=your_search_engine_id
-```
-
-### Database Configuration
-
-AskDB supports multiple database engines:
-
-```python
-# PostgreSQL
-askdb database add postgres --host localhost --port 5432 --database mydb --user myuser --password mypass
-
-# MySQL
-askdb database add mysql --host localhost --port 3306 --database mydb --user myuser --password mypass
-
-# SQLite
-askdb database add sqlite --database /path/to/database.db
-
-# SQL Server
-askdb database add sqlserver --host localhost --port 1433 --database mydb --user myuser --password mypass
-```
-
-## 🚀 Quick Start
-
-### Command Line Interface
-
-1. **Interactive Mode**
-   ```bash
-   askdb interactive
-   ```
-
-2. **Single Query**
-   ```bash
-   askdb query "Show me all customers from California" --database mydb
-   ```
-
-3. **Database Management**
-   ```bash
-   # List databases
-   askdb database list
-   
-   # Test connection
-   askdb database test mydb
-   
-   # Show schema
-   askdb database schema mydb
-   ```
-
-### Python API
-
-```python
-from askdb import create_agent
-from askdb.config import DatabaseConfig, DatabaseType
-
-# Configure database
-db_config = DatabaseConfig(
-    db_type=DatabaseType.POSTGRESQL,
-    host="localhost",
-    database="mydb",
-    username="user",
-    password="password"
-)
-
-# Create agent
-agent = create_agent(database_tool=db_config)
-
-# Process query
-result = agent.process_query("Show me all customers from California")
-print(result.response)
-```
-
-## 📖 Usage Examples
-
-### Natural Language Queries
-
-```bash
-# Basic queries
-askdb query "How many products do we have?"
-askdb query "Show me the top 5 customers by revenue"
-
-# Complex queries with joins
-askdb query "Find all orders placed by customers from New York in the last month"
-
-# Analytical queries
-askdb query "What is the average order value by product category?"
-askdb query "Show me monthly sales trends for this year"
-```
-
-### Interactive Mode Features
-
-- **Multi-turn conversations**: Context is maintained across queries
-- **Clarification requests**: Agent asks for clarification when needed
-- **Error explanations**: Detailed feedback when queries fail
-- **Result formatting**: Multiple output formats (table, json, csv)
-
-```bash
-$ askdb interactive
-AskDB Interactive Mode
-Type 'exit' to quit, 'help' for commands
-
-> Show me all customers
-Found 150 customers. Would you like to see them all or apply a filter?
-> Show me only active customers
-Found 92 active customers. Displaying first 10:
-+----+----------------+-------------------+---------+
-| ID | Name           | Email             | Status  |
-+----+----------------+-------------------+---------+
-| 1  | John Doe       | john@example.com  | Active  |
-| 2  | Jane Smith     | jane@example.com  | Active  |
-+----+----------------+-------------------+---------+
-
-> What's the total revenue from these customers?
-The total revenue from active customers is $1,234,567.89
-```
-
-## 🔧 Advanced Configuration
-
-### Custom LLM Providers
-
-```python
-from askdb.models import LLMInterface
-from askdb.config import get_settings
-
-settings = get_settings()
-llm_config = settings.get_llm_config()
-
-# Configure custom provider
-llm_interface = LLMInterface(
-    provider="custom",
-    model="custom-model",
-    api_key="your-api-key",
-    **llm_config
-)
-```
-
-### Safety Configuration
-
-```python
-from askdb.agent.safety import SafetyManager, RiskLevel
-
-safety_manager = SafetyManager()
-safety_manager.max_risk_level = RiskLevel.MEDIUM
-safety_manager.enable_pii_detection = True
-safety_manager.enable_sql_injection_check = True
-```
-
-### Schema Indexing
-
-```python
-from askdb.tools import SchemaManager
-
-schema_manager = SchemaManager(database_tool)
-schema_manager.build_search_index()
-
-# Semantic search for relevant tables
-relevant_tables = schema_manager.find_relevant_tables("customer orders")
-```
-
-## 🧪 Testing
-
-Run the test suite:
-
-```bash
-# Run all tests
-pytest
-
-# Run specific test modules
-pytest tests/test_agent.py
-pytest tests/test_tools.py
-pytest tests/test_safety.py
-
-# Run with coverage
-pytest --cov=askdb tests/
-```
-
-### Spider Benchmark Compatibility
-
-AskDB includes evaluation framework compatible with Spider benchmark:
-
-```python
-from askdb.evaluation import SpiderEvaluator
-
-evaluator = SpiderEvaluator()
-results = evaluator.evaluate_on_spider(
-    dataset_path="path/to/spider/dataset",
-    output_dir="evaluation_results"
-)
-```
-
-## 🏗️ Architecture
-
-### Core Components
-
-1. **Agent Core** (`askdb/agent/core.py`)
-   - ReAct-based cognitive framework
-   - Multi-step reasoning and planning
-   - Tool orchestration and execution
-
-2. **Dynamic Prompting** (`askdb/agent/prompting.py`)
-   - Schema-aware prompt generation
-   - Context-aware template system
-   - Semantic table discovery
-
-3. **Safety Protocols** (`askdb/agent/safety.py`)
-   - Risk classification and assessment
-   - PII detection and filtering
-   - SQL injection prevention
-
-4. **Tool System** (`askdb/tools/`)
-   - Database connectivity and query execution
-   - Schema exploration and indexing
-   - Web search integration
-
-5. **Model Interface** (`askdb/models/`)
-   - LLM provider abstraction
-   - Conversation management
-   - Response handling
-
-### Data Flow
-
-```
-User Query → Safety Check → Schema Analysis → Prompt Generation → LLM Processing → Tool Execution → Result Validation → Response
-```
-
-## 🔒 Security Features
-
-- **Multi-layered Safety**: Risk assessment, PII detection, SQL injection prevention
-- **Query Validation**: Syntax checking, complexity analysis, permission verification
-- **Output Filtering**: Sensitive data redaction, result sanitization
-- **Audit Logging**: Complete query execution history with security events
-
-## 🤝 Contributing
-
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
-
-### Development Setup
-
-```bash
-# Install development dependencies
-pip install -r requirements.txt
-pip install -e .
-
-# Run tests
-pytest
-
-# Run linting
-flake8 askdb/
-black askdb/
-
-# Run type checking
-mypy askdb/
-```
-
-## 📝 License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
-## 🆘 Troubleshooting
-
-### Common Issues
-
-1. **Database Connection Errors**
-   ```bash
-   # Test database connection
-   askdb database test your_db_name
-   
-   # Check configuration
-   askdb status
-   ```
-
-2. **LLM API Errors**
-   - Verify API keys in `.env` file
-   - Check network connectivity
-   - Review API rate limits
-
-3. **Schema Indexing Issues**
-   ```bash
-   # Rebuild schema index
-   askdb database schema your_db_name --rebuild
-   ```
-
-4. **Safety Check Failures**
-   - Review query complexity
-   - Check for potential PII or injection patterns
-   - Adjust risk level settings
-
-### Debug Mode
-
-Enable debug logging:
-
-```bash
-askdb --verbose query "your query"
-```
-
-Or set in `.env`:
-```env
-LOG_LEVEL=DEBUG
-```
-
-## 📚 Additional Resources
-
-- [API Documentation](docs/api.md)
-- [Configuration Guide](docs/configuration.md)
-- [Safety Protocols](docs/safety.md)
-- [Benchmark Results](docs/benchmarks.md)
-- [Frequently Asked Questions](docs/faq.md)
-
-## 🌟 Acknowledgments
-
-- Built with inspiration from ReAct (Reasoning and Acting) framework
-- Integrates state-of-the-art LLM models for natural language understanding
-- Leverages sentence-transformers for semantic search capabilities
-- Compatible with Spider benchmark for text-to-SQL evaluation
+</div>
 
 ---
 
-**AskDB Development Team**  
-*Making databases accessible through natural language*
+## 📖 简介
+
+AskDB 是一个智能数据库助手，让你可以用**自然语言**与数据库对话。无需编写 SQL，只需描述你想要什么，AI 会帮你完成！
+
+```
+你说: "显示销售额最高的5个产品"
+AI 做: SELECT name, sales FROM products ORDER BY sales DESC LIMIT 5
+```
+
+### 核心特点
+
+- 🤖 **AI 驱动** - 基于 Google Gemini 2.0，理解你的真实意图
+- 🛡️ **多层安全** - 危险操作需要确认，保护你的数据
+- 🔍 **智能搜索** - 自动找到相关的表和列，即使你不知道确切名称
+- 🔄 **自动调试** - SQL 出错会自动修正，无需人工干预
+- 💬 **对话式** - 支持上下文，可以追问和澄清
+
+## 🚀 快速开始
+
+### 1. 安装依赖
+
+```bash
+pip install -r requirements.txt
+```
+
+### 2. 配置环境
+
+运行交互式配置向导：
+
+```bash
+python askdb_agno.py setup
+```
+
+或手动创建 `.env` 文件：
+
+```env
+# Gemini API (必需)
+GEMINI_API_KEY=your_api_key_here
+GEMINI_MODEL=gemini-2.0-flash-exp
+
+# 数据库配置
+DEFAULT_DB_TYPE=mysql
+DEFAULT_DB_HOST=localhost
+DEFAULT_DB_PORT=3306
+DEFAULT_DB_NAME=your_database
+DEFAULT_DB_USER=root
+DEFAULT_DB_PASSWORD=your_password
+```
+
+**获取 API Key**: https://makersuite.google.com/app/apikey
+
+### 3. 开始使用
+
+```bash
+# 启动交互模式
+python askdb_agno.py interactive
+
+# 单次查询
+python askdb_agno.py ask "显示所有用户"
+
+# 查看状态
+python askdb_agno.py status
+
+# 查看表结构
+python askdb_agno.py describe users
+```
+
+## ✨ 功能特性
+
+### 🎯 核心功能
+
+| 功能 | 说明 |
+|------|------|
+| **自然语言查询** | 用中文或英文提问，无需 SQL 知识 |
+| **智能表搜索** | 模糊搜索表名，即使不知道确切名称也能找到 |
+| **自动生成 SQL** | AI 理解意图后自动生成优化的 SQL |
+| **安全确认机制** | 修改数据前自动要求确认 |
+| **错误自动修复** | SQL 错误会自动分析和重试 |
+| **上下文记忆** | 记住对话内容，支持追问 |
+
+### 🛡️ 安全特性
+
+#### 三层安全防护
+
+1. **PII 检测** - 防止泄露个人敏感信息
+2. **查询复杂度检查** - 阻止过于复杂或危险的操作
+3. **数据访问控制** - 标记敏感表和列的访问
+
+#### 风险分级
+
+```
+🟢 LOW      → 普通查询，直接执行
+🟡 MEDIUM   → 复杂查询，显示提示
+🟠 HIGH     → 数据修改，需要确认
+🔴 CRITICAL → 危险操作，强制确认
+```
+
+#### 确认示例
+
+```
+> 删除所有测试订单
+
+⚠️  High-risk operation detected!
+Risk Level: high
+SQL: DELETE FROM orders WHERE status = 'test'
+
+Do you want to proceed? (y/n): 
+```
+
+### 🔧 支持的数据库
+
+- ✅ MySQL / MariaDB
+- ✅ PostgreSQL
+- ✅ SQLite
+
+## 💡 使用示例
+
+### 基础查询
+
+```
+> 显示所有用户
+> 统计订单总数
+> 查找价格大于100的产品
+```
+
+### 复杂查询
+
+```
+> 统计每个用户的订单数量
+> 查找2023年销售额最高的5个产品
+> 显示加州客户的总消费金额
+```
+
+### 数据修改（需确认）
+
+```
+> 删除状态为"已取消"的订单
+> 将产品ID为100的价格更新为99.99
+> 创建一个新用户，名字是张三
+```
+
+### 模糊搜索
+
+```
+> 哪个表包含客户信息？
+> 显示所有与订单相关的表
+> 查找包含价格的列
+```
+
+### 寻求帮助
+
+```
+> 什么是JOIN操作？
+> 如何优化这个查询？
+> 解释一下刚才的SQL
+```
+
+## 🏗️ 架构设计
+
+### 技术栈
+
+```
+┌─────────────────────────────────────┐
+│         Agno Framework              │  智能体框架
+│  (ReAct: 推理 → 行动 → 观察)         │
+└──────────┬──────────────────────────┘
+           │
+┌──────────┴──────────────────────────┐
+│      Gemini 2.0 Flash              │  语言模型
+└──────────┬──────────────────────────┘
+           │
+┌──────────┴──────────────────────────┐
+│         Tool Layer                  │
+│  ┌────────────────────────────┐    │
+│  │ DatabaseTools              │    │  核心工具
+│  │ - execute_query            │    │
+│  │ - execute_non_query        │    │
+│  │ - search_tables_by_name    │    │
+│  │ - list_tables              │    │
+│  │ - describe_table           │    │
+│  └────────────────────────────┘    │
+│  ┌────────────────────────────┐    │
+│  │ WebSearchTools             │    │  扩展工具
+│  │ - request_internet_search  │    │
+│  └────────────────────────────┘    │
+└──────────┬──────────────────────────┘
+           │
+┌──────────┴──────────────────────────┐
+│     Safety Layer                    │
+│  - PII Detection                    │  安全层
+│  - Query Validation                 │
+│  - Risk Assessment                  │
+└──────────┬──────────────────────────┘
+           │
+┌──────────┴──────────────────────────┐
+│    Database Layer                   │
+│  - MySQL / PostgreSQL / SQLite      │  数据库层
+│  - Connection Management            │
+│  - Schema Exploration               │
+└─────────────────────────────────────┘
+```
+
+### 工作流程
+
+```
+用户输入
+    ↓
+自然语言理解
+    ↓
+安全评估 → [高风险?] → 是 → 用户确认
+    ↓               ↓
+   否              取消
+    ↓
+查找相关表
+    ↓
+生成 SQL
+    ↓
+执行查询
+    ↓
+[出错?] → 是 → 自动调试 → 重试
+    ↓
+   否
+    ↓
+返回结果
+```
+
+### 项目结构
+
+```
+askdb/
+├── askdb_agno.py              # 主程序入口
+├── requirements.txt           # 项目依赖
+├── .env.example              # 配置示例
+│
+├── lib/                       # 核心库
+│   └── safety.py             # 安全管理器
+│
+├── tools/                     # 工具模块
+│   ├── agno_tools.py         # Agno 工具集（核心）
+│   ├── database.py           # 数据库操作
+│   ├── schema.py             # 模式管理
+│   └── web_search.py         # 网络搜索
+│
+└── archive/                   # 归档的原版实现
+```
+
+## 🎓 进阶使用
+
+### 命令行选项
+
+```bash
+# 交互模式（推荐）
+python askdb_agno.py interactive [--debug]
+
+# 单次查询
+python askdb_agno.py ask "你的问题" [--debug]
+
+# 查看状态
+python askdb_agno.py status
+
+# 查看表结构
+python askdb_agno.py describe <表名>
+
+# 配置向导
+python askdb_agno.py setup
+```
+
+### 调试模式
+
+启用调试模式可以看到 AI 的思考过程：
+
+```bash
+python askdb_agno.py interactive --debug
+```
+
+会显示：
+- 工具调用详情
+- SQL 生成步骤
+- 错误调试过程
+
+### 环境变量配置
+
+```env
+# 基础配置
+GEMINI_API_KEY=xxx              # Gemini API 密钥（必需）
+GEMINI_MODEL=gemini-2.0-flash-exp  # 模型版本
+
+# 数据库配置
+DEFAULT_DB_TYPE=mysql           # 数据库类型
+DEFAULT_DB_HOST=localhost       # 主机地址
+DEFAULT_DB_PORT=3306           # 端口号
+DEFAULT_DB_NAME=mydb           # 数据库名
+DEFAULT_DB_USER=root           # 用户名
+DEFAULT_DB_PASSWORD=pass       # 密码
+
+# 高级配置
+MAX_QUERY_COMPLEXITY=100       # 最大查询复杂度
+WEB_SEARCH_PROVIDER=duckduckgo # 搜索引擎
+```
+
+## 🔍 常见问题
+
+### Q: 需要什么样的 API Key？
+**A:** 需要 Google Gemini API Key，免费获取：https://makersuite.google.com/app/apikey
+
+### Q: 支持哪些数据库？
+**A:** MySQL、PostgreSQL、SQLite。其他数据库可以通过 SQLAlchemy 扩展。
+
+### Q: 会不会误删数据？
+**A:** 不会！所有数据修改操作（DELETE、UPDATE、DROP 等）都需要用户明确确认。
+
+### Q: 如何处理复杂查询？
+**A:** 尽量用自然语言描述需求，AI 会自动处理 JOIN、GROUP BY 等复杂逻辑。
+
+### Q: 出错了怎么办？
+**A:** AI 会自动分析错误并重试。如果持续失败，会给出具体的错误信息。
+
+### Q: 能记住上下文吗？
+**A:** 可以！在交互模式下，AI 会记住对话历史，支持追问。
+
+### Q: 性能如何？
+**A:** 简单查询 1-3秒，复杂查询 3-10秒。首次运行需要下载模型。
+
+## 🛠️ 故障排除
+
+### 无法连接数据库
+
+```bash
+# 1. 检查配置
+python askdb_agno.py status
+
+# 2. 测试网络
+ping your_database_host
+
+# 3. 检查权限
+mysql -u user -p -h host database
+```
+
+### API 调用失败
+
+- 检查 API Key 是否正确
+- 确认网络可以访问 Google API
+- 查看是否超出配额限制
+
+### 导入错误
+
+```bash
+# 清理缓存
+find . -type d -name "__pycache__" -exec rm -rf {} +
+pip install -r requirements.txt --upgrade
+```
+
+## 📊 对比原版
+
+| 特性 | 原版实现 | Agno 版本 |
+|------|---------|-----------|
+| 代码量 | ~5000 行 | ~3000 行 |
+| 依赖复杂度 | 高 | 低 |
+| ReAct 实现 | 手动 | 框架自动 |
+| 配置方式 | 复杂配置文件 | 简单环境变量 |
+| 学习曲线 | 陡峭 | 平缓 |
+| 功能完整性 | 完整 | 完整 |
+| 维护难度 | 高 | 低 |
+
+## 🤝 贡献
+
+欢迎提交 Issue 和 Pull Request！
+
+## 📄 许可证
+
+MIT License
+
+---
+
+<div align="center">
+
+**AskDB - 让数据库查询像对话一样简单** 💬
+
+Made with ❤️ using [Agno](https://github.com/agno-agi/agno) + [Gemini](https://ai.google.dev)
+
+</div>

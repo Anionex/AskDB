@@ -11,7 +11,7 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.exc import SQLAlchemyError, OperationalError, ProgrammingError
 from sqlalchemy.orm import sessionmaker, Session
 
-from config import DatabaseConfig, get_db_config_manager
+# Legacy config imports removed - using environment variables directly
 
 logger = logging.getLogger(__name__)
 
@@ -32,17 +32,33 @@ class DatabaseTool:
     Supports multiple database engines through SQLAlchemy.
     """
     
-    def __init__(self, config: Optional[DatabaseConfig] = None):
+    def __init__(self, db_url: Optional[str] = None):
         """
-        Initialize database tool with configuration.
+        Initialize database tool with database URL.
         
         Args:
-            config: Database configuration. If None, uses default config.
+            db_url: SQLAlchemy database URL. If None, builds from environment variables.
         """
-        self.config = config or get_db_config_manager().get_default()
-        if not self.config:
-            raise DatabaseConnectionError("No database configuration provided")
+        if db_url is None:
+            # Build URL from environment variables
+            import os
+            db_type = os.getenv("DEFAULT_DB_TYPE", "mysql")
+            host = os.getenv("DEFAULT_DB_HOST", "localhost")
+            port = os.getenv("DEFAULT_DB_PORT", "3306")
+            database = os.getenv("DEFAULT_DB_NAME", "")
+            user = os.getenv("DEFAULT_DB_USER", "root")
+            password = os.getenv("DEFAULT_DB_PASSWORD", "")
+            
+            if db_type == "mysql":
+                db_url = f"mysql+pymysql://{user}:{password}@{host}:{port}/{database}"
+            elif db_type == "postgresql":
+                db_url = f"postgresql://{user}:{password}@{host}:{port}/{database}"
+            elif db_type == "sqlite":
+                db_url = f"sqlite:///{database}"
+            else:
+                raise DatabaseConnectionError(f"Unsupported database type: {db_type}")
         
+        self.db_url = db_url
         self.engine: Optional[Engine] = None
         self.session_factory: Optional[sessionmaker] = None
         self._connected = False
@@ -55,13 +71,10 @@ class DatabaseTool:
             bool: True if connection successful, False otherwise.
         """
         try:
-            logger.info(f"Connecting to database: {self.config.db_type}")
+            logger.info(f"Connecting to database: {self.db_url.split('@')[0].split('//')[1].split(':')[0]}")
             
             # Create SQLAlchemy engine
-            self.engine = create_engine(
-                self.config.get_sqlalchemy_url(),
-                **self.config.get_engine_kwargs()
-            )
+            self.engine = create_engine(self.db_url)
             
             # Test connection
             with self.engine.connect() as conn:
@@ -295,15 +308,20 @@ class DatabaseTool:
             except:
                 view_names = []
             
-            # Get database version
-            version_result = self.execute_query("SELECT version() as version")
-            version = version_result["data"][0]["version"] if (version_result["success"] and version_result["data"]) else "Unknown"
+            # Try to get database version
+            try:
+                version_result = self.execute_query("SELECT version() as version")
+                version = version_result["data"][0]["version"] if (version_result["success"] and version_result["data"]) else "Unknown"
+            except:
+                version = "Unknown"
             
+            # Extract database info from URL
+            import os
             return {
-                "database_type": str(self.config.db_type),
-                "database_name": self.config.database,
-                "host": self.config.host,
-                "port": self.config.port,
+                "database_type": os.getenv("DEFAULT_DB_TYPE", "unknown"),
+                "database_name": self.engine.url.database or "unknown",
+                "host": self.engine.url.host or "unknown",
+                "port": self.engine.url.port or "unknown",
                 "version": version,
                 "table_count": len(table_names),
                 "tables": table_names,
@@ -355,136 +373,25 @@ class DatabaseTool:
         self.disconnect()
 
 
-class DatabaseToolManager:
-    """
-    Manager for multiple database tool instances.
-    """
-    
-    def __init__(self):
-        self._tools: Dict[str, DatabaseTool] = {}
-        self._default_tool: Optional[str] = None
-    
-    def add_tool(self, name: str, config: DatabaseConfig, set_as_default: bool = False) -> DatabaseTool:
-        """
-        Add a database tool.
-        
-        Args:
-            name: Tool name
-            config: Database configuration
-            set_as_default: Whether to set as default tool
-            
-        Returns:
-            DatabaseTool: Created database tool
-        """
-        tool = DatabaseTool(config)
-        self._tools[name] = tool
-        
-        if set_as_default or self._default_tool is None:
-            self._default_tool = name
-        
-        logger.info(f"Added database tool: {name}")
-        return tool
-    
-    def get_tool(self, name: Optional[str] = None) -> Optional[DatabaseTool]:
-        """
-        Get database tool by name.
-        
-        Args:
-            name: Tool name. If None, returns default tool.
-            
-        Returns:
-            DatabaseTool or None if not found
-        """
-        if name is None:
-            name = self._default_tool
-        
-        return self._tools.get(name) if name else None
-    
-    def list_tools(self) -> List[str]:
-        """List all available tool names."""
-        return list(self._tools.keys())
-    
-    def remove_tool(self, name: str) -> bool:
-        """
-        Remove database tool.
-        
-        Args:
-            name: Tool name
-            
-        Returns:
-            bool: True if removed, False if not found
-        """
-        if name in self._tools:
-            tool = self._tools[name]
-            if tool.is_connected:
-                tool.disconnect()
-            del self._tools[name]
-            
-            if self._default_tool == name:
-                self._default_tool = next(iter(self._tools.keys()), None)
-            
-            logger.info(f"Removed database tool: {name}")
-            return True
-        return False
-    
-    def disconnect_all(self):
-        """Disconnect all database tools."""
-        for tool in self._tools.values():
-            if tool.is_connected:
-                tool.disconnect()
-        logger.info("Disconnected all database tools")
-
-
-# Global database tool manager instance
-_db_tool_manager = DatabaseToolManager()
-_db_tool_manager_initialized = False
-
-
-def get_db_tool_manager() -> DatabaseToolManager:
-    """Get global database tool manager."""
-    global _db_tool_manager_initialized
-    
-    # Initialize tools from config manager on first access
-    if not _db_tool_manager_initialized:
-        try:
-            config_manager = get_db_config_manager()
-            configs = config_manager.list_configs()
-            
-            # Add tools for all configured databases
-            for name, config in configs.items():
-                is_default = (name == config_manager._default_config)
-                _db_tool_manager.add_tool(name, config, set_as_default=is_default)
-            
-            _db_tool_manager_initialized = True
-        except Exception as e:
-            logger.warning(f"Failed to initialize database tools from config: {e}")
-    
-    return _db_tool_manager
-
+# Legacy functions kept for backward compatibility
+# Agno version uses DatabaseConnection in agno_tools.py directly
 
 def get_database_tool(name: Optional[str] = None) -> Optional[DatabaseTool]:
     """
-    Get database tool by name.
+    Get database tool instance.
+    
+    Note: In Agno version, this creates a new instance from environment variables.
+    Legacy function kept for compatibility with schema.py.
     
     Args:
-        name: Tool name. If None, returns default tool.
+        name: Ignored in Agno version
         
     Returns:
-        DatabaseTool or None if not found
+        DatabaseTool instance or None on error
     """
-    return _db_tool_manager.get_tool(name)
-
-
-def create_database_tool(name: str, config: DatabaseConfig, set_as_default: bool = False) -> DatabaseTool:
-    """
-    Create and add a database tool.
-    
-    Args:
-        name: Tool name
-        config: Database configuration
-        set_as_default: Whether to set as default tool
-        
-    Returns:
-        DatabaseTool: Created database tool
-    """
-    return _db_tool_manager.add_tool(name, config, set_as_default)
+    try:
+        tool = DatabaseTool()
+        return tool
+    except Exception as e:
+        logger.warning(f"Failed to create database tool: {e}")
+        return None

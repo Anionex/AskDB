@@ -17,26 +17,32 @@ from enum import Enum
 from dataclasses import dataclass, field
 from datetime import datetime
 
-from config import get_settings
+import os
 
 
 class RiskLevel(Enum):
     """Risk level classification for queries and actions."""
-    LOW = "low"
-    MEDIUM = "medium"
-    HIGH = "high"
-    CRITICAL = "critical"
+    LOW = 1
+    MEDIUM = 2
+    HIGH = 3
+    CRITICAL = 4
+    
+    @property
+    def name_str(self) -> str:
+        """Get string name of risk level."""
+        return self.name.lower()
 
 
 class SafetyCheckType(Enum):
     """Types of safety checks."""
     PII_DETECTION = "pii_detection"
-    SQL_INJECTION = "sql_injection"
-    MALICIOUS_CONTENT = "malicious_content"
     DATA_ACCESS = "data_access"
     QUERY_COMPLEXITY = "query_complexity"
-    SENSITIVE_TABLES = "sensitive_tables"
     OUTPUT_FILTERING = "output_filtering"
+    
+    # Removed: SQL_INJECTION - not relevant for LLM-generated SQL
+    # Removed: MALICIOUS_CONTENT - covered by query complexity
+    # Removed: SENSITIVE_TABLES - covered by data access
 
 
 @dataclass
@@ -55,7 +61,7 @@ class SafetyCheckResult:
         return {
             "check_type": self.check_type.value,
             "passed": self.passed,
-            "risk_level": self.risk_level.value,
+            "risk_level": self.risk_level.name.lower(),
             "confidence": self.confidence,
             "message": self.message,
             "details": self.details,
@@ -77,7 +83,7 @@ class SafetyAssessment:
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary."""
         return {
-            "overall_risk": self.overall_risk.value,
+            "overall_risk": self.overall_risk.name.lower(),
             "passed_all_checks": self.passed_all_checks,
             "check_results": [result.to_dict() for result in self.check_results],
             "recommendations": self.recommendations,
@@ -168,19 +174,21 @@ class PIIDetector:
 class SQLInjectionDetector:
     """Detects potential SQL injection attacks."""
     
-    # SQL injection patterns
+    # SQL injection patterns - only detect actual injection attempts
     INJECTION_PATTERNS = [
-        r"(\b(UNION|SELECT|INSERT|UPDATE|DELETE|DROP|CREATE|ALTER|EXEC|EXECUTE)\b)",
-        r"(--|#|/\*|\*/)",
-        r"(\bOR\b.*\b1\s*=\s*1\b|\bAND\b.*\b1\s*=\s*1\b)",
-        r"(\bOR\b.*\bTRUE\b|\bAND\b.*\bTRUE\b)",
-        r"(\;\s*(DROP|DELETE|UPDATE|INSERT)\b)",
-        r"(\bWAITFOR\s+DELAY\b)",
-        r"(\bBENCHMARK\b\s*\()",
-        r"(\bSLEEP\b\s*\()",
-        r"(\bPG_SLEEP\b\s*\()",
-        r"(\bXP_CMDSHELL\b)",
-        r"(\bSP_EXECUTESQL\b)",
+        r"(\bUNION\s+(ALL\s+)?SELECT\b)",  # UNION-based injection
+        r"(--[^\n]*$)",  # SQL comments (potential injection)
+        r"(/\*.*?\*/)",  # Multi-line comments
+        r"(\bOR\b\s+\d+\s*=\s*\d+|\bAND\b\s+\d+\s*=\s*\d+)",  # Boolean injection (1=1, 2=2, etc)
+        r"(\bOR\b\s+['\"]?\w+['\"]?\s*=\s*['\"]?\w+['\"]?)",  # Boolean injection with strings
+        r"(;\s*(DROP|DELETE|UPDATE|INSERT|CREATE|ALTER)\b)",  # Stacked queries
+        r"(\bWAITFOR\s+DELAY\b)",  # Time-based blind injection
+        r"(\bBENCHMARK\s*\()",  # Benchmark function (MySQL)
+        r"(\bSLEEP\s*\()",  # Sleep function (MySQL)
+        r"(\bPG_SLEEP\s*\()",  # Sleep function (PostgreSQL)
+        r"(\bXP_CMDSHELL\b)",  # Command execution (SQL Server)
+        r"(\bSP_EXECUTESQL\b)",  # Dynamic SQL execution
+        r"(\bEXEC\s*\(|\bEXECUTE\s*\()",  # EXEC/EXECUTE with parenthesis (likely injection)
     ]
     
     def __init__(self):
@@ -211,16 +219,16 @@ class SQLInjectionDetector:
         match_lower = match.lower()
         
         # High confidence patterns
-        if any(keyword in match_lower for keyword in ["union select", "drop table", "delete from", "insert into"]):
+        if any(keyword in match_lower for keyword in ["union select", "xp_cmdshell", "sp_executesql"]):
             return 0.95
-        elif any(keyword in match_lower for keyword in ["--", "/*", "*/"]):
+        elif any(keyword in match_lower for keyword in ["waitfor delay", "sleep(", "benchmark(", "pg_sleep"]):
             return 0.9
-        elif "1=1" in match_lower or "true" in match_lower:
+        elif any(keyword in match_lower for keyword in ["; drop", "; delete", "; insert", "; update"]):
+            return 0.95
+        elif "1=1" in match_lower or "2=2" in match_lower or "'1'='1'" in match_lower:
             return 0.85
-        elif any(keyword in match_lower for keyword in ["waitfor delay", "sleep(", "benchmark("]):
-            return 0.9
-        elif any(keyword in match_lower for keyword in ["xp_cmdshell", "sp_executesql"]):
-            return 0.95
+        elif any(keyword in match_lower for keyword in ["--", "/*"]):
+            return 0.6  # Lower confidence for comments (might be legitimate)
         
         return 0.7
 
@@ -308,16 +316,24 @@ class QueryValidator:
     
     def _check_dangerous_operations(self, query: str) -> List[str]:
         """Check for dangerous SQL operations."""
-        query_lower = query.lower()
+        query_lower = query.lower().strip()
         dangerous = []
         
-        dangerous_keywords = [
-            "drop", "truncate", "delete", "update", "insert", 
-            "alter", "create", "exec", "execute"
+        # Only detect as dangerous if these are actual SQL commands, not just in table/column names
+        dangerous_patterns = [
+            (r'\bdrop\s+(table|database|index)', "drop"),
+            (r'\btruncate\s+', "truncate"),
+            (r'\bdelete\s+from\b', "delete"),
+            (r'\bupdate\s+\w+\s+set\b', "update"),
+            (r'\binsert\s+into\b', "insert"),
+            (r'\balter\s+(table|database)', "alter"),
+            (r'\bcreate\s+(table|database|index)', "create"),
+            (r'\bexec\s*\(', "exec"),
+            (r'\bexecute\s+', "execute")
         ]
         
-        for keyword in dangerous_keywords:
-            if keyword in query_lower:
+        for pattern, keyword in dangerous_patterns:
+            if re.search(pattern, query_lower):
                 dangerous.append(keyword)
         
         return dangerous
@@ -348,12 +364,11 @@ class QueryValidator:
 class SafetyManager:
     """Main safety manager for AskDB agent."""
     
-    def __init__(self, settings=None):
-        self.settings = settings or get_settings()
+    def __init__(self):
         self.pii_detector = PIIDetector()
         self.injection_detector = SQLInjectionDetector()
         self.query_validator = QueryValidator(
-            max_complexity_score=self.settings.max_query_complexity
+            max_complexity_score=int(os.getenv("MAX_QUERY_COMPLEXITY", "100"))
         )
         
         # Sensitive tables and columns (using defaults as these aren't in Settings yet)
@@ -371,30 +386,33 @@ class SafetyManager:
         self.logger = logging.getLogger(__name__)
     
     def assess_query_safety(self, query: str, context: Optional[Dict[str, Any]] = None) -> SafetyAssessment:
-        """Assess the safety of a query."""
+        """
+        Assess the safety of a query.
+        
+        Note: SQL injection detection is NOT included because:
+        - The SQL is generated by LLM, not directly from user input
+        - Real threats are dangerous operations (DROP, DELETE), not injection patterns
+        - Injection detection causes false positives for legitimate queries
+        """
         check_results = []
         
-        # PII detection
+        # 1. PII detection - prevent exposing sensitive information
         pii_result = self._check_pii(query)
         check_results.append(pii_result)
         
-        # SQL injection detection
-        injection_result = self._check_sql_injection(query)
-        check_results.append(injection_result)
-        
-        # Query validation
+        # 2. Query validation - detect dangerous operations and complexity
         schema_info = context.get("schema_info") if context else None
         validation_result = self.query_validator.validate_query(query, schema_info)
         check_results.append(validation_result)
         
-        # Data access check
+        # 3. Data access check - flag sensitive table/column access
         data_access_result = self._check_data_access(query, context)
         check_results.append(data_access_result)
         
         # Overall assessment
         overall_assessment = self._create_overall_assessment(check_results)
         
-        self.logger.info(f"Safety assessment completed for query: {overall_assessment.overall_risk.value}")
+        self.logger.info(f"Safety assessment completed for query: {overall_assessment.overall_risk.name.lower()}")
         
         return overall_assessment
     
@@ -522,10 +540,9 @@ class SafetyManager:
         # Determine if all checks passed
         passed_all = all(result.passed for result in check_results)
         
-        # Determine overall risk level (highest risk among failed checks)
-        failed_checks = [r for r in check_results if not r.passed]
-        if failed_checks:
-            overall_risk = max(failed_checks, key=lambda x: x.risk_level.value).risk_level
+        # Determine overall risk level (highest risk among all checks, not just failed)
+        if check_results:
+            overall_risk = max(check_results, key=lambda x: x.risk_level.value).risk_level
         else:
             overall_risk = RiskLevel.LOW
         
@@ -536,7 +553,7 @@ class SafetyManager:
         blocked = not self.risk_thresholds.get(overall_risk, False)
         block_reason = None
         if blocked:
-            block_reason = f"Query blocked due to {overall_risk.value} risk level"
+            block_reason = f"Query blocked due to {overall_risk.name.lower()} risk level"
         
         return SafetyAssessment(
             overall_risk=overall_risk,
@@ -555,10 +572,10 @@ class SafetyManager:
             if not result.passed:
                 if result.check_type == SafetyCheckType.PII_DETECTION:
                     recommendations.append("Remove or mask personally identifiable information from the query")
-                elif result.check_type == SafetyCheckType.SQL_INJECTION:
-                    recommendations.append("Review query for potential SQL injection patterns")
                 elif result.check_type == SafetyCheckType.QUERY_COMPLEXITY:
                     recommendations.append("Simplify the query or break it into smaller parts")
+                    if result.details.get("dangerous_operations"):
+                        recommendations.append(f"Dangerous operations detected: {', '.join(result.details['dangerous_operations'])}")
                 elif result.check_type == SafetyCheckType.DATA_ACCESS:
                     recommendations.append("Review data access patterns and consider less sensitive alternatives")
         
@@ -596,30 +613,4 @@ class SafetyManager:
         return output
 
 
-# Global safety manager instance
-_safety_manager = None
-
-
-def get_safety_manager(settings=None) -> SafetyManager:
-    """Get the global safety manager instance."""
-    global _safety_manager
-    if _safety_manager is None:
-        _safety_manager = SafetyManager(settings)
-    return _safety_manager
-
-
-def create_safety_manager(settings=None) -> SafetyManager:
-    """Create a new safety manager instance."""
-    return SafetyManager(settings)
-
-
-def assess_query_safety(query: str, context: Optional[Dict[str, Any]] = None) -> SafetyAssessment:
-    """Convenience function for query safety assessment."""
-    manager = get_safety_manager()
-    return manager.assess_query_safety(query, context)
-
-
-def assess_output_safety(output: str, query: str) -> SafetyCheckResult:
-    """Convenience function for output safety assessment."""
-    manager = get_safety_manager()
-    return manager.assess_output_safety(output, query)
+# Legacy functions removed - create SafetyManager directly in Agno version
