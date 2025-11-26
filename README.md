@@ -1,4 +1,4 @@
-# AskDB - 自然语言数据库查询助手
+<h1 align="center"> AskDB - 自然语言数据库查询助手 </h1>
 
 <div align="center">
 
