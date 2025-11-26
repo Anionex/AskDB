@@ -6,7 +6,7 @@
 
 [![Python](https://img.shields.io/badge/Python-3.8+-blue.svg)](https://www.python.org)
 [![Agno](https://img.shields.io/badge/Agno-Framework-green.svg)](https://github.com/agno-agi/agno)
-[![Gemini](https://img.shields.io/badge/Gemini-2.0-orange.svg)](https://ai.google.dev)
+[![LLM](https://img.shields.io/badge/LLM-Powered-orange.svg)](https://github.com/agno-agi/agno)
 
 [快速开始](#快速开始) • [功能特性](#功能特性) • [使用示例](#使用示例) • [架构设计](#架构设计)
 
@@ -25,7 +25,7 @@ AI 做: SELECT name, sales FROM products ORDER BY sales DESC LIMIT 5
 
 ### 核心特点
 
-- 🤖 **AI 驱动** - 基于 Google Gemini 2.0，理解你的真实意图
+- 🤖 **AI 驱动** - 基于大语言模型（LLM），理解你的真实意图
 - 🛡️ **多层安全** - 危险操作需要确认，保护你的数据
 - 🔍 **智能搜索** - 自动找到相关的表和列，即使你不知道确切名称
 - 🔄 **自动调试** - SQL 出错会自动修正，无需人工干预
@@ -50,9 +50,9 @@ python askdb_agno.py setup
 或手动创建 `.env` 文件：
 
 ```env
-# Gemini API (必需)
+# LLM API 配置 (使用 Gemini 作为示例)
 GEMINI_API_KEY=your_api_key_here
-GEMINI_MODEL=gemini-2.0-flash-exp
+GEMINI_MODEL=gemini-2.5-flash
 
 # 数据库配置
 DEFAULT_DB_TYPE=mysql
@@ -182,7 +182,7 @@ Do you want to proceed? (y/n):
 └──────────┬──────────────────────────┘
            │
 ┌──────────┴──────────────────────────┐
-│      Gemini 2.0 Flash              │  语言模型
+│            LLM                      │  语言模型
 └──────────┬──────────────────────────┘
            │
 ┌──────────┴──────────────────────────┐
@@ -299,7 +299,7 @@ python askdb_agno.py interactive --debug
 ```env
 # 基础配置
 GEMINI_API_KEY=xxx              # Gemini API 密钥（必需）
-GEMINI_MODEL=gemini-2.0-flash-exp  # 模型版本
+GEMINI_MODEL=gemini-2.5-flash  # 模型版本
 
 # 数据库配置
 DEFAULT_DB_TYPE=mysql           # 数据库类型
@@ -317,7 +317,7 @@ WEB_SEARCH_PROVIDER=duckduckgo # 搜索引擎
 ## 🔍 常见问题
 
 ### Q: 需要什么样的 API Key？
-**A:** 需要 Google Gemini API Key，免费获取：https://makersuite.google.com/app/apikey
+**A:** 当前使用 Gemini API（免费获取：https://makersuite.google.com/app/apikey）。也可以扩展支持其他 LLM（OpenAI、Claude 等）。
 
 ### Q: 支持哪些数据库？
 **A:** MySQL、PostgreSQL、SQLite。其他数据库可以通过 SQLAlchemy 扩展。
@@ -392,6 +392,6 @@ MIT License
 
 **AskDB - 让数据库查询像对话一样简单** 💬
 
-Made with ❤️ using [Agno](https://github.com/agno-agi/agno) + [Gemini](https://ai.google.dev)
+Made with ❤️ using [Agno Framework](https://github.com/agno-agi/agno)
 
 </div>
