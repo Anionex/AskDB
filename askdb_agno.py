@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
 """
-AskDB with Agno Framework
-
-A natural language database interface using Agno framework.
+AskDB with Agno Framework - 完整版
+Natural language database interface using Agno framework.
 Implements the complete AskDB architecture with ReAct framework, 
 safety protocols, and semantic schema search.
 """
@@ -13,6 +12,11 @@ import json
 import logging
 from typing import Optional
 from pathlib import Path
+
+# 注册opengauss方言
+dialects_path = Path(__file__).parent / "dialects"
+sys.path.insert(0, str(dialects_path))
+from dialects.opengauss_dialect import OpenGaussDialect
 
 # Load environment variables
 from dotenv import load_dotenv
@@ -26,11 +30,14 @@ from rich.table import Table
 from rich.markdown import Markdown
 
 from agno.agent import Agent
+from agno.tools.duckduckgo import DuckDuckGoTools
+from agno.tools.exa import ExaTools
 from agno.models.google import Gemini
 from agno.db.sqlite import SqliteDb
 
 # Import our custom tools
 from tools.agno_tools import DatabaseTools, WebSearchTools, db
+TOOLS_AVAILABLE = True
 
 console = Console()
 logger = logging.getLogger(__name__)
@@ -124,9 +131,9 @@ def create_agent(debug: bool = False, enable_memory: bool = True, session_id: st
 - 使用 search_tables_by_name 工具定位相关表
 
 ### 2. 模式/结构探索
-- 当用户提到概念（如“客户”、“订单”）时，用 search_tables_by_name 找到相关表
+- 当用户提到概念（如"客户"、"订单"）时，用 search_tables_by_name 找到相关表
   * 该工具支持用语义相似度把概念映射到表名
-  * 例如：“customer data” 会匹配到“users”、“clients”、“accounts”等表
+  * 例如："customer data" 会匹配到"users"、"clients"、"accounts"等表
 - 编写 SQL 前，一定要用 describe_table 查明字段名和类型
 - 注意表之间的关联关系（如外键）
 
@@ -155,27 +162,41 @@ def create_agent(debug: bool = False, enable_memory: bool = True, session_id: st
 - 总是提供清晰自然语言的说明
 - 展示执行过的 SQL 语句
 - 用有条理的方式展示结果
-- 若结果集较大，请总结关键内容
-
-### 7. 何时使用网络搜索
-- 以下情况使用 request_for_internet_search 工具：
-  * 用户问到数据库里没有的概念
-  * 需要最新信息（时间、事件、定义等）
-  * 解释查询时需要外部知识
-  * 理解专业术语时需额外查阅
+- 若结果集较大，请总结关键内容，并用自然语言解释查询逻辑
+- 对于事实性问题，直接给出准确答案，不解释
 
 请牢记：你要做到助人为本，精准且安全。始终以数据安全与用户意图为最高原则。"""
 
+    # 创建工具列表
+    tools_list = [
+        DuckDuckGoTools(),
+        ExaTools(api_key="058a2ec7-6142-493d-a8bd-40db70742d23"),
+    ]
+    
+    # 添加工具
+    if TOOLS_AVAILABLE:
+        try:
+            # 添加数据库工具
+            db_tools = DatabaseTools()
+            tools_list.append(db_tools)
+            
+            # 添加Web搜索工具
+            web_tools = WebSearchTools()
+            tools_list.append(web_tools)
+            
+        except Exception as e:
+            logger.error(f"❌ 添加工具失败: {e}")
+    
     # Create agent with tools and conversation history
     agent_params = {
         "name": "AskDB",
         "model": Gemini(id=model_id, api_key=api_key),
-        "tools": [DatabaseTools(), WebSearchTools()],
+        "tools": tools_list,  
         "instructions": instructions,
         "markdown": True,
         "debug_mode": debug,
     }
-    
+
     # Add session storage and history features if enabled
     if enable_memory and storage_db:
         agent_params.update({
@@ -223,7 +244,7 @@ def interactive(debug, no_memory, session_id):
     
     try:
         agent = create_agent(debug, enable_memory=not no_memory, session_id=session_id)
-        console.print("[green]✓ Agent ready![/green]")
+        console.print("[green]✓ Agent ready[/green]")
         
         # Check if memory is actually enabled
         has_storage = hasattr(agent, 'db') and agent.db is not None
@@ -455,25 +476,25 @@ def setup():
     env_file = Path(".env")
     if env_file.exists():
         console.print("\n[yellow]Found existing .env file[/yellow]")
-        if not Prompt.ask("Overwrite?", choices=["y", "n"], default="n") == "y":
+        if not click.confirm("Overwrite?"):
             console.print("[yellow]Setup cancelled[/yellow]")
             return
     
     # Gemini API Key
     console.print("\n[bold]1. Gemini API Configuration[/bold]")
     console.print("Get your API key from: https://makersuite.google.com/app/apikey")
-    gemini_key = Prompt.ask("Gemini API Key", password=True)
+    gemini_key = click.prompt("Gemini API Key", hide_input=True)
     
     # Database configuration
     console.print("\n[bold]2. Database Configuration[/bold]")
-    db_type = Prompt.ask(
+    db_type = click.prompt(
         "Database Type",
-        choices=["mysql", "postgresql", "sqlite"],
+        type=click.Choice(["mysql", "postgresql", "sqlite"]),
         default="mysql"
     )
     
     if db_type == "sqlite":
-        db_path = Prompt.ask("Database file path", default="data/askdb.db")
+        db_path = click.prompt("Database file path", default="data/askdb.db")
         env_content = f"""# Gemini API Configuration
 GEMINI_API_KEY={gemini_key}
 GEMINI_MODEL=gemini-2.5-flash
@@ -483,11 +504,11 @@ DEFAULT_DB_TYPE=sqlite
 DEFAULT_DB_NAME={db_path}
 """
     else:
-        db_host = Prompt.ask("Database Host", default="localhost")
-        db_port = Prompt.ask("Database Port", default="3306" if db_type == "mysql" else "5432")
-        db_name = Prompt.ask("Database Name")
-        db_user = Prompt.ask("Database User", default="root")
-        db_pass = Prompt.ask("Database Password", password=True)
+        db_host = click.prompt("Database Host", default="localhost")
+        db_port = click.prompt("Database Port", default="3306" if db_type == "mysql" else "5432")
+        db_name = click.prompt("Database Name")
+        db_user = click.prompt("Database User", default="root")
+        db_pass = click.prompt("Database Password", hide_input=True)
         
         env_content = f"""# Gemini API Configuration
 GEMINI_API_KEY={gemini_key}
@@ -530,4 +551,3 @@ if __name__ == '__main__':
     Path("logs").mkdir(exist_ok=True)
     
     cli()
-

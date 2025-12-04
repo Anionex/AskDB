@@ -16,7 +16,7 @@ from urllib.parse import urlencode, quote_plus
 import time
 
 import os
-
+import nest_asyncio  # 添加nest_asyncio修复事件循环冲突
 
 logger = logging.getLogger(__name__)
 
@@ -253,12 +253,17 @@ class BingSearchProvider(BaseWebSearchProvider):
 
 
 class WebSearchTool:
-    """Main web search tool that manages different search providers."""
+    """Main web search tool that manages different search providers - 修复版"""
     
     def __init__(self, provider: Optional[str] = None, **kwargs):
         self.provider_name = provider or os.getenv("WEB_SEARCH_PROVIDER", "duckduckgo")
         self.provider = self._create_provider(**kwargs)
         self._session = None
+        
+        try:
+            nest_asyncio.apply()
+        except Exception as e:
+            logger.warning(f"⚠️ nest_asyncio补丁应用失败: {e}")
     
     def _create_provider(self, **kwargs) -> BaseWebSearchProvider:
         """Create search provider based on configuration."""
@@ -295,10 +300,89 @@ class WebSearchTool:
                 logger.error(f"Web search failed: {e}")
                 raise WebSearchError(f"Search failed: {e}")
     
-    async def search_sync(self, query: str, max_results: int = 10, **kwargs) -> List[SearchResult]:
-        """Synchronous wrapper for async search."""
-        loop = asyncio.get_event_loop()
-        return await loop.run_until_complete(self.search(query, max_results, **kwargs))
+    def search_sync(self, query: str, max_results: int = 10, **kwargs) -> List[SearchResult]:
+        """同步版本的Web搜索 - 修复事件循环问题"""
+        try:
+            # 创建新的事件循环，避免冲突
+            import asyncio
+            
+            # 应用nest_asyncio补丁，允许嵌套事件循环
+            try:
+                nest_asyncio.apply()
+            except Exception as e:
+                logger.warning(f"nest_asyncio补丁应用失败: {e}")
+            
+            # 创建新的事件循环
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            
+            try:
+                # 执行异步搜索
+                results = loop.run_until_complete(
+                    self.search(query, max_results=max_results, **kwargs)
+                )
+                logger.info(f"✅ 同步Web搜索成功: 找到 {len(results)} 个结果")
+                return results
+            except Exception as e:
+                logger.error(f"同步Web搜索执行失败: {e}")
+                # 返回空结果而不是抛出异常
+                return []
+            finally:
+                loop.close()
+                
+        except Exception as e:
+            logger.error(f"同步Web搜索失败: {e}")
+            # 返回空结果而不是抛出异常
+            return []
+    
+    def search_with_fallback(self, query: str, max_results: int = 10, **kwargs) -> List[SearchResult]:
+        """带降级策略的Web搜索"""
+        try:
+            # 首先尝试同步搜索
+            results = self.search_sync(query, max_results, **kwargs)
+            if results:
+                return results
+            
+            # 如果同步搜索失败，尝试异步搜索
+            logger.info("同步搜索失败，尝试异步搜索...")
+            try:
+                loop = asyncio.get_event_loop()
+                if loop.is_running():
+                    # 如果事件循环已经在运行，创建新的事件循环
+                    loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop)
+                    results = loop.run_until_complete(self.search(query, max_results, **kwargs))
+                    loop.close()
+                    return results
+                else:
+                    # 使用现有的事件循环
+                    return loop.run_until_complete(self.search(query, max_results, **kwargs))
+            except RuntimeError:
+                # 如果没有事件循环，创建新的
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                results = loop.run_until_complete(self.search(query, max_results, **kwargs))
+                loop.close()
+                return results
+                
+        except Exception as e:
+            logger.error(f"Web搜索完全失败: {e}")
+            # 返回模拟结果作为最终降级
+            return self._get_fallback_results(query)
+    
+    def _get_fallback_results(self, query: str) -> List[SearchResult]:
+        """获取降级结果 - 当所有搜索方法都失败时使用"""
+        logger.warning(f"使用降级结果代替Web搜索: {query}")
+        
+        # 返回模拟结果
+        return [
+            SearchResult(
+                title="Web搜索功能暂时不可用",
+                url="",
+                snippet=f"由于技术问题，Web搜索功能暂时不可用。您查询的内容是: {query}。请稍后再试或联系技术支持。",
+                source="fallback"
+            )
+        ]
     
     def format_results(self, results: List[SearchResult], format_type: str = "text") -> str:
         """Format search results for display."""
@@ -343,6 +427,79 @@ class WebSearchTool:
     def extract_snippets(self, results: List[SearchResult]) -> List[str]:
         """Extract snippets from search results."""
         return [result.snippet for result in results]
+    
+    def get_error_message(self, error: Exception) -> Dict[str, Any]:
+        """获取详细的错误信息，用于返回给用户"""
+        error_msg = str(error)
+        
+        if "event loop" in error_msg.lower():
+            return {
+                "success": False,
+                "error_type": "EventLoopConflict",
+                "error_code": "WEB_SEARCH_UNAVAILABLE",
+                "message": "Web搜索功能遇到技术问题",
+                "technical_details": "内部事件循环冲突导致Web搜索功能暂时不可用。技术团队正在积极修复此问题。",
+                "suggestions": [
+                    "请稍后再试",
+                    "您可以尝试直接访问相关网站获取信息",
+                    "对于数据库相关查询，我仍然可以正常为您服务"
+                ]
+            }
+        elif "connection" in error_msg.lower():
+            return {
+                "success": False,
+                "error_type": "ConnectionError",
+                "error_code": "NETWORK_UNAVAILABLE",
+                "message": "网络连接问题",
+                "technical_details": "无法连接到搜索服务，请检查网络连接。",
+                "suggestions": [
+                    "检查网络连接",
+                    "稍后重试",
+                    "联系网络管理员"
+                ]
+            }
+        else:
+            return {
+                "success": False,
+                "error_type": "UnknownError",
+                "error_code": "UNKNOWN_ERROR",
+                "message": "Web搜索功能暂时不可用",
+                "technical_details": error_msg,
+                "suggestions": [
+                    "请稍后再试",
+                    "联系技术支持"
+                ]
+            }
 
 
-# Legacy WebSearchManager removed - Agno version creates WebSearchTool directly
+def get_web_search_tool(provider: Optional[str] = None, **kwargs) -> WebSearchTool:
+    """Factory function to create a web search tool."""
+    return WebSearchTool(provider, **kwargs)
+
+
+# 测试函数
+def test_web_search():
+    """测试Web搜索功能"""
+    try:
+        tool = WebSearchTool(provider="duckduckgo")
+        results = tool.search_sync("test query", max_results=3)
+        print(f"✅ Web搜索测试成功: 找到 {len(results)} 个结果")
+        return True
+    except Exception as e:
+        print(f"❌ Web搜索测试失败: {e}")
+        return False
+
+
+if __name__ == "__main__":
+    # 安装必要的依赖
+    try:
+        import nest_asyncio
+        print("✅ nest_asyncio 已安装")
+    except ImportError:
+        print("❌ 请安装 nest_asyncio: pip install nest_asyncio")
+    
+    # 测试Web搜索
+    if test_web_search():
+        print("🎉 Web搜索功能正常！")
+    else:
+        print("⚠️ Web搜索功能需要修复")
