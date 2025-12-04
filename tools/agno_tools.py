@@ -95,7 +95,7 @@ class DatabaseConnection:
             self.schema_manager.build_search_index()
             
             self._schema_initialized = True
-            logger.info("✓ Semantic search enabled")
+            logger.info("Semantic search enabled")
             
         except Exception as e:
             logger.warning(f"Failed to initialize semantic search: {e}")

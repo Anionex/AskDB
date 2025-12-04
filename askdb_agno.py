@@ -113,9 +113,6 @@ def create_agent(debug: bool = False, enable_memory: bool = True, session_id: st
 3. **结构探索** - 搜索表结构和理解数据库架构
 4. **外部知识** - 在需要时搜索互联网信息
 
-## 数据库上下文
-{tables_info}
-
 ## 查询处理规范
 
 ### 1. 理解用户意图
@@ -174,6 +171,7 @@ def create_agent(debug: bool = False, enable_memory: bool = True, session_id: st
         "instructions": instructions,
         "markdown": True,
         "debug_mode": debug,
+        # "show_tool_calls": True,  # 在 debug 模式下显示工具调用
     }
     
     # Add session storage and history features if enabled
