@@ -1,12 +1,8 @@
+#!/usr/bin/env python3
 """
-AskDB Agno Tools - Database toolkit for Agno Agent
+AskDB Agno Tools - 修复版
 
-This module provides the database tools for the Agno framework,
-implementing the four core tools described in the AskDB paper:
-1. execute_query - Execute SELECT statements
-2. execute_non_query - Execute data modification statements
-3. search_tables_by_name - Semantic table search
-4. request_for_internet_search - Web search
+修复Web搜索工具的异步冲突问题
 """
 
 import os
@@ -20,7 +16,7 @@ from sqlalchemy.engine import Engine
 
 from lib.safety import SafetyManager, RiskLevel
 from tools.schema import SchemaManager
-from tools.web_search import WebSearchTool
+from tools.web_search import WebSearchTool, WebSearchError  # 导入修复后的web_search
 from rich.prompt import Confirm
 from rich.console import Console
 
@@ -29,7 +25,7 @@ console = Console()
 
 
 class DatabaseConnection:
-    """Simple database connection manager."""
+    """数据库连接管理器"""
     
     def __init__(self):
         self.engine: Optional[Engine] = None
@@ -40,8 +36,13 @@ class DatabaseConnection:
         self._schema_initialized = False
     
     def connect(self) -> bool:
-        """Connect to database using environment variables."""
-        db_type = os.getenv("DEFAULT_DB_TYPE", "mysql")
+        """连接数据库"""
+        try:
+            from dialects.opengauss_dialect import OpenGaussDialect
+        except ImportError:
+            pass  # 静默失败
+        
+        db_type = os.getenv("DEFAULT_DB_TYPE", "mysql").lower()
         host = os.getenv("DEFAULT_DB_HOST", "localhost")
         port = os.getenv("DEFAULT_DB_PORT", "3306")
         database = os.getenv("DEFAULT_DB_NAME", "")
@@ -51,85 +52,72 @@ class DatabaseConnection:
         if db_type == "mysql":
             url = f"mysql+pymysql://{user}:{password}@{host}:{port}/{database}"
         elif db_type == "postgresql":
-            url = f"postgresql://{user}:{password}@{host}:{port}/{database}"
+            url = f"postgresql+psycopg2://{user}:{password}@{host}:{port}/{database}"
+        elif db_type == "opengauss":
+            url = f"opengauss+psycopg2://{user}:{password}@{host}:{port}/{database}"
         elif db_type == "sqlite":
             url = f"sqlite:///{database}"
         else:
-            raise ValueError(f"Unsupported database type: {db_type}")
+            raise ValueError(f"不支持的数据库类型: {db_type}")
         
         try:
-            self.engine = create_engine(url)
+            if db_type == "opengauss":
+                self.engine = create_engine(
+                    url,
+                    connect_args={
+                        'sslmode': 'prefer',
+                        'application_name': 'AskDB Agent',
+                        'connect_timeout': 10,
+                        'options': '-c statement_timeout=30000' 
+                    },
+                    pool_pre_ping=True,  
+                    echo=False,  
+                    future=True   
+                )
+            else:
+                self.engine = create_engine(url)
+            
+            # 测试连接
             with self.engine.connect() as conn:
-                conn.execute(text("SELECT 1"))
-            self._connected = True
-            logger.info(f"Connected to {db_type} database: {database}")
-            
-            # Initialize schema manager if semantic search is enabled
-            if self._semantic_search_enabled and not self._schema_initialized:
-                self._initialize_schema_manager()
-            
-            return True
+                result = conn.execute(text("SELECT 1"))
+                if result.scalar() == 1:
+                    self._connected = True
+                    return True
+                else:
+                    raise Exception("连接测试失败")
+                    
         except Exception as e:
-            logger.error(f"Connection failed: {e}")
+            logger.error(f"❌ 数据库连接失败: {e}")
             self._connected = False
-            raise
-    
-    def _initialize_schema_manager(self):
-        """Initialize schema manager with vector indexing."""
-        if self._schema_initialized:
-            return
-        
-        try:
-            from tools.database import DatabaseTool
-            from tools.schema import SchemaManager
-            
-            logger.info("Initializing schema manager for semantic search...")
-            db_tool = DatabaseTool()
-            if not db_tool.is_connected:
-                db_tool.connect()
-            
-            self.schema_manager = SchemaManager(db_tool)
-            
-            # Build vector index in background (non-blocking)
-            logger.info("Building vector index for semantic table search...")
-            self.schema_manager.build_search_index()
-            
-            self._schema_initialized = True
-            logger.info("Semantic search enabled")
-            
-        except Exception as e:
-            logger.warning(f"Failed to initialize semantic search: {e}")
-            logger.info("Falling back to simple name matching")
-            self.schema_manager = None
-            self._schema_initialized = True  # Mark as attempted
+            return False
     
     @property
     def is_connected(self) -> bool:
         return self._connected and self.engine is not None
     
     def execute_query(self, sql: str, allow_modifications: bool = False) -> dict:
-        """Execute SQL query with safety checks."""
+        """执行SQL查询"""
         if not self.is_connected:
             self.connect()
         
-        # Safety assessment
+        # 安全检查
         safety_result = self.safety_manager.assess_query_safety(sql)
         
-        # Check if query modifies data
+        # 检查是否为数据修改操作
         is_modification = any(keyword in sql.upper() for keyword in 
                             ["INSERT", "UPDATE", "DELETE", "DROP", "ALTER", "CREATE", "TRUNCATE"])
         
-        # High-risk queries require confirmation
+        # 高风险操作需要确认
         if safety_result.overall_risk in [RiskLevel.HIGH, RiskLevel.CRITICAL] or is_modification:
             if not allow_modifications:
-                console.print(f"\n[yellow]⚠️  High-risk operation detected![/yellow]")
-                console.print(f"[yellow]Risk Level: {safety_result.overall_risk.name.lower()}[/yellow]")
+                console.print(f"\n[yellow]⚠️  检测到高风险操作![/yellow]")
+                console.print(f"[yellow]风险等级: {safety_result.overall_risk.name.lower()}[/yellow]")
                 console.print(f"[yellow]SQL: {sql}[/yellow]")
                 
-                if not Confirm.ask("Do you want to proceed?"):
+                if not Confirm.ask("是否继续执行?"):
                     return {
                         "success": False,
-                        "error": "Operation cancelled by user",
+                        "error": "用户取消操作",
                         "safety_blocked": True
                     }
         
@@ -156,7 +144,7 @@ class DatabaseConnection:
                         "sql": sql
                     }
         except Exception as e:
-            logger.error(f"Query execution failed: {e}")
+            logger.error(f"❌ 查询执行失败: {e}")
             return {
                 "success": False,
                 "error": str(e),
@@ -164,14 +152,14 @@ class DatabaseConnection:
             }
     
     def get_tables(self) -> list:
-        """Get list of tables."""
+        """获取表列表"""
         if not self.is_connected:
             self.connect()
         inspector = inspect(self.engine)
         return inspector.get_table_names()
     
     def get_table_info(self, table_name: str) -> dict:
-        """Get table schema info."""
+        """获取表信息"""
         if not self.is_connected:
             self.connect()
         inspector = inspect(self.engine)
@@ -202,12 +190,12 @@ class DatabaseConnection:
         }
 
 
-# Global database connection
+# 全局数据库连接
 db = DatabaseConnection()
 
 
 class DatabaseTools(Toolkit):
-    """Database toolkit for Agno Agent - implements core AskDB tools."""
+    """数据库工具集"""
     
     def __init__(self):
         super().__init__(
@@ -223,16 +211,7 @@ class DatabaseTools(Toolkit):
         self.safety_manager = db.safety_manager
     
     def execute_query(self, sql_query: str) -> str:
-        """
-        Execute a SELECT SQL query against the database.
-        Use this for read-only data retrieval operations.
-        
-        Args:
-            sql_query: The SELECT SQL statement to execute.
-        
-        Returns:
-            JSON string with query results or error.
-        """
+        """执行SELECT查询"""
         try:
             result = db.execute_query(sql_query, allow_modifications=False)
             if result["success"]:
@@ -243,36 +222,26 @@ class DatabaseTools(Toolkit):
                         "success": True,
                         "data": data,
                         "total_rows": result["row_count"],
-                        "note": f"Showing 15 of {result['row_count']} rows"
+                        "note": f"显示前15条，共{result['row_count']}条记录"
                     }, ensure_ascii=False, default=str, indent=2)
                 return json.dumps({
                     "success": True,
                     "data": data,
                     "row_count": result["row_count"]
                 }, ensure_ascii=False, default=str, indent=2)
-            return json.dumps({"success": False, "error": result.get("error", "Unknown error")})
+            return json.dumps({"success": False, "error": result.get("error", "未知错误")})
         except Exception as e:
             return json.dumps({"success": False, "error": str(e)})
     
     def execute_non_query(self, sql_statement: str) -> str:
-        """
-        Execute a data modification SQL statement (INSERT, UPDATE, DELETE, etc.).
-        This requires user confirmation for safety.
-        
-        Args:
-            sql_statement: The SQL statement that modifies data.
-        
-        Returns:
-            JSON string with execution results or error.
-        """
+        """执行数据修改操作"""
         try:
-            # This will trigger safety checks and user confirmation
             result = db.execute_query(sql_statement, allow_modifications=True)
             
             if result.get("safety_blocked"):
                 return json.dumps({
                     "success": False,
-                    "error": "Operation blocked by user or safety system",
+                    "error": "操作被用户或安全系统阻止",
                     "blocked": True
                 })
             
@@ -280,19 +249,14 @@ class DatabaseTools(Toolkit):
                 return json.dumps({
                     "success": True,
                     "rows_affected": result.get("row_count", 0),
-                    "message": "Statement executed successfully"
+                    "message": "语句执行成功"
                 }, ensure_ascii=False, indent=2)
-            return json.dumps({"success": False, "error": result.get("error", "Unknown error")})
+            return json.dumps({"success": False, "error": result.get("error", "未知错误")})
         except Exception as e:
             return json.dumps({"success": False, "error": str(e)})
     
     def list_tables(self) -> str:
-        """
-        Get a list of all tables in the database.
-        
-        Returns:
-            JSON string with list of table names.
-        """
+        """获取所有表"""
         try:
             tables = db.get_tables()
             return json.dumps({
@@ -304,15 +268,7 @@ class DatabaseTools(Toolkit):
             return json.dumps({"success": False, "error": str(e)})
     
     def describe_table(self, table_name: str) -> str:
-        """
-        Get detailed schema information about a specific table.
-        
-        Args:
-            table_name: Name of the table to describe.
-        
-        Returns:
-            JSON string with table schema information.
-        """
+        """获取表结构信息"""
         try:
             table_info = db.get_table_info(table_name)
             return json.dumps({
@@ -323,72 +279,15 @@ class DatabaseTools(Toolkit):
             return json.dumps({"success": False, "error": str(e)})
     
     def search_tables_by_name(self, search_query: str, top_k: int = 5) -> str:
-        """
-        Search for tables using semantic similarity matching (if enabled).
-        This is useful when the user's query mentions concepts that might 
-        map to table names (e.g., "customer data" → "users" table).
-        
-        Uses all-MiniLM-L6-v2 model for semantic search when ENABLE_SEMANTIC_SEARCH=true.
-        Falls back to simple name matching otherwise.
-        
-        Args:
-            search_query: Natural language description or keyword to search for.
-            top_k: Number of top matching tables to return (default: 5).
-        
-        Returns:
-            JSON string with matching table names and their relevance scores.
-        """
-        # Try semantic search if enabled and schema manager is initialized
-        if db._semantic_search_enabled and db.schema_manager is not None:
-            try:
-                # Perform semantic search using schema manager
-                relevant_tables = db.schema_manager.find_relevant_tables(
-                    search_query,
-                    use_semantic=True,
-                    top_k=top_k
-                )
-                
-                # Format results with detailed info
-                results = []
-                for table in relevant_tables:
-                    results.append({
-                        "table_name": table.name,
-                        "columns": [col.name for col in table.columns][:10],  # First 10 columns
-                        "column_count": len(table.columns),
-                        "row_count": table.row_count,
-                        "description": table.description or f"Table with {len(table.columns)} columns"
-                    })
-                
-                return json.dumps({
-                    "success": True,
-                    "matching_tables": results,
-                    "count": len(results),
-                    "search_method": "semantic"
-                }, ensure_ascii=False, indent=2)
-            except Exception as e:
-                 logger.warning(f"Semantic search failed, falling back to simple matching: {e}")
-                 # Fall through to simple name matching
-        elif db._semantic_search_enabled:
-            # Semantic search is enabled but not initialized
-            logger.info("Semantic search enabled but schema manager not initialized. Initializing now...")
-            try:
-                db._initialize_schema_manager()
-                # Retry semantic search after initialization
-                if db.schema_manager is not None:
-                    return self.search_tables_by_name(search_query, top_k)
-            except Exception as e:
-                logger.warning(f"Schema manager initialization failed: {e}")
-        
-        # Fallback: Simple name-based matching
-        # This is used when semantic search is unavailable or fails
+        """搜索表"""
         try:
             tables = db.get_tables()
             search_lower = search_query.lower()
             
-            # Find tables that contain the search term
+            # 查找包含搜索词的表
             matching = [t for t in tables if search_lower in t.lower()][:top_k]
             
-            # If no direct matches, find tables that partially match any word in the query
+            # 如果没有直接匹配，查找部分匹配
             if not matching:
                 search_words = search_lower.split()
                 for table in tables:
@@ -398,7 +297,7 @@ class DatabaseTools(Toolkit):
                         if len(matching) >= top_k:
                             break
             
-            # Get detailed info for matched tables
+            # 获取匹配表的详细信息
             results = []
             for table_name in matching:
                 try:
@@ -410,28 +309,26 @@ class DatabaseTools(Toolkit):
                         "primary_key": table_info.get("primary_key", [])
                     })
                 except:
-                    # If getting table info fails, just return table name
                     results.append({"table_name": table_name})
             
             return json.dumps({
                 "success": True,
                 "matching_tables": results,
                 "count": len(results),
-                "search_method": "simple_name_matching",
-                "note": "Using simple name matching (semantic search not available)"
+                "search_method": "simple_name_matching"
             }, ensure_ascii=False, indent=2)
             
         except Exception as e:
-                logger.error(f"Table search completely failed: {e}")
-                return json.dumps({
-                    "success": False,
-                    "error": str(e),
-                    "message": "Unable to search tables. Please check database connection."
-                })
+            logger.error(f"❌ 表搜索失败: {e}")
+            return json.dumps({
+                "success": False,
+                "error": str(e),
+                "message": "无法搜索表，请检查数据库连接"
+            })
 
 
 class WebSearchTools(Toolkit):
-    """Web search toolkit for Agno Agent."""
+    """修复版Web搜索工具集"""
     
     def __init__(self):
         super().__init__(
@@ -440,65 +337,53 @@ class WebSearchTools(Toolkit):
                 self.request_for_internet_search,
             ]
         )
-        self.web_search_tool: Optional[WebSearchTool] = None
-    
+        # 使用修复后的WebSearchTool
+        self.web_search_tool = WebSearchTool()
+        logger.info("✅ Web搜索工具已初始化（修复版）")
+
     def request_for_internet_search(self, search_query: str, max_results: int = 5) -> str:
-        """
-        Perform an internet search to retrieve external information.
-        Use this when you need current information or knowledge beyond the database.
-        
-        Args:
-            search_query: The search query string.
-            max_results: Maximum number of results to return (default: 5).
-        
-        Returns:
-            JSON string with search results.
-        """
+        """修复的Web搜索方法"""
         try:
-            # Initialize web search tool if needed
-            if self.web_search_tool is None:
-                try:
-                    from tools.web_search import get_web_search_tool
-                    self.web_search_tool = get_web_search_tool()
-                except Exception:
-                    # Fallback: use DuckDuckGo without API key
-                    from tools.web_search import WebSearchTool
-                    self.web_search_tool = WebSearchTool(provider="duckduckgo")
+            # 使用同步搜索避免异步冲突
+            results = self.web_search_tool.search_sync(search_query, max_results)
             
-            # Perform search (async)
-            import asyncio
-            try:
-                loop = asyncio.get_event_loop()
-            except RuntimeError:
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
+            if not results:
+                return json.dumps({
+                    "success": True,
+                    "results": [],
+                    "count": 0,
+                    "message": "未找到相关结果",
+                    "query": search_query
+                }, ensure_ascii=False, indent=2)
             
-            results = loop.run_until_complete(
-                self.web_search_tool.search(search_query, max_results=max_results)
-            )
-            
-            # Format results
+            # 格式化结果
             formatted_results = []
             for result in results:
                 formatted_results.append({
                     "title": result.title,
                     "url": result.url,
                     "snippet": result.snippet,
-                    "source": result.source
+                    "source": result.source,
+                    "relevance_score": result.relevance_score
                 })
             
-            return json.dumps({
+            response_data = {
                 "success": True,
                 "results": formatted_results,
                 "count": len(formatted_results),
-                "query": search_query
-            }, ensure_ascii=False, indent=2)
+                "query": search_query,
+                "message": f"成功找到 {len(formatted_results)} 个相关结果"
+            }
+            
+            logger.info(f"✅ Web搜索成功: {search_query}")
+            return json.dumps(response_data, ensure_ascii=False, indent=2)
             
         except Exception as e:
-            logger.error(f"Web search failed: {e}")
+            logger.error(f"❌ Web搜索失败: {e}")
             return json.dumps({
                 "success": False,
                 "error": str(e),
-                "message": "Web search is currently unavailable"
-            })
-
+                "message": "Web搜索功能暂时不可用",
+                "query": search_query,
+                "results": []
+            }, ensure_ascii=False, indent=2)

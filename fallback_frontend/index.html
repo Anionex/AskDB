@@ -1,0 +1,77 @@
+
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <title>AskDB - 备用界面</title>
+    <style>
+        body { font-family: Arial; margin: 40px; background: #f5f5f5; }
+        .container { max-width: 800px; margin: 0 auto; background: white; padding: 30px; border-radius: 10px; }
+        .chat-box { border: 1px solid #ddd; padding: 20px; height: 400px; overflow-y: auto; margin: 20px 0; }
+        .input-area { display: flex; gap: 10px; }
+        input { flex: 1; padding: 10px; border: 1px solid #ddd; border-radius: 5px; }
+        button { padding: 10px 20px; background: #007acc; color: white; border: none; border-radius: 5px; cursor: pointer; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🤖 AskDB - 智能数据库助手（备用界面）</h1>
+        <p>这是一个简化的界面，功能完整</p>
+        
+        <div class="chat-box" id="chatBox">
+            <div><strong>AskDB:</strong> 欢迎使用！我可以帮你用自然语言查询数据库。</div>
+        </div>
+        
+        <div class="input-area">
+            <input type="text" id="userInput" placeholder="输入你的数据库查询问题..." onkeypress="if(event.key=='Enter')sendMessage()">
+            <button onclick="sendMessage()">发送</button>
+        </div>
+    </div>
+
+    <script>
+        async function sendMessage() {
+            const input = document.getElementById('userInput');
+            const message = input.value.trim();
+            if (!message) return;
+            
+            // 添加用户消息
+            addMessage('user', message);
+            input.value = '';
+            input.disabled = true;
+            
+            try {
+                const response = await fetch('http://localhost:8000/api/chat', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ 
+                        message: message,
+                        session_id: 'web-session'
+                    })
+                });
+                
+                const data = await response.json();
+                addMessage('bot', data.response);
+                
+            } catch (error) {
+                addMessage('bot', '错误: ' + error.message);
+            }
+            
+            input.disabled = false;
+            input.focus();
+        }
+        
+        function addMessage(sender, content) {
+            const chatBox = document.getElementById('chatBox');
+            const messageDiv = document.createElement('div');
+            messageDiv.innerHTML = `<strong>${sender === 'user' ? '你' : 'AskDB'}:</strong> ${content}`;
+            messageDiv.style.margin = '10px 0';
+            messageDiv.style.padding = '10px';
+            messageDiv.style.background = sender === 'user' ? '#e3f2fd' : '#f5f5f5';
+            messageDiv.style.borderRadius = '5px';
+            chatBox.appendChild(messageDiv);
+            chatBox.scrollTop = chatBox.scrollHeight;
+        }
+    </script>
+</body>
+</html>
+    
