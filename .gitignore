@@ -47,18 +47,32 @@ logs/
 # Cache
 cache/
 *.cache
+__pycache__/
+.pytest_cache/
 
 # Data
-data/
-*.db
-*.sqlite
-*.sqlite3
+data/*.db
+data/*.sqlite
+data/*.sqlite3
+
+# Frontend
+node_modules/
+dist/
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
 
 # OS
 .DS_Store
 Thumbs.db
-nul
-nul~
+
+# Media
+*.mp4
+*.mov
+*.avi
+*.mkv
+*.webm
 
 # Test coverage
 .coverage
