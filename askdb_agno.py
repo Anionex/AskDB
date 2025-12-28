@@ -22,13 +22,12 @@ load_dotenv(override=True)
 
 from agno.agent import Agent
 from agno.tools.duckduckgo import DuckDuckGoTools
-from agno.tools.exa import ExaTools
 from agno.models.google import Gemini
 from agno.models.openai import OpenAIChat
 from agno.db.sqlite import SqliteDb
 
 # Import our custom tools
-from tools.agno_tools import DatabaseTools, WebSearchTools, db
+from tools.agno_tools import DatabaseTools, db
 from tools.enhanced_tools import EnhancedDatabaseTools
 TOOLS_AVAILABLE = True
 
@@ -320,8 +319,7 @@ execute_non_query_with_explanation(
 
     # 创建工具列表
     tools_list = [
-        DuckDuckGoTools(),
-        ExaTools(api_key="058a2ec7-6142-493d-a8bd-40db70742d23"),
+        DuckDuckGoTools(),  # 保留一个搜索工具即可
     ]
     
     # 添加工具
@@ -330,10 +328,6 @@ execute_non_query_with_explanation(
             # 添加增强版数据库工具（集成向量检索）
             enhanced_db_tools = EnhancedDatabaseTools()
             tools_list.append(enhanced_db_tools)
-            
-            # 添加Web搜索工具
-            web_tools = WebSearchTools()
-            tools_list.append(web_tools)
             
             logger.info("✅ Enhanced database tools with vector retrieval loaded")
             

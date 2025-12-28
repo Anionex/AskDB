@@ -447,8 +447,20 @@ export const useChatStore = create(
                   console.warn('⚠️ [推荐数据为空或格式错误]', data.data)
                   set({ recommendations: [] })
                 }
+              } else if (data.type === 'title_updated') {
+                // 收到标题更新通知
+                console.log('📝 [收到标题更新]', data.title)
+                if (data.title && sessionId) {
+                  // 立即更新本地会话列表中的标题
+                  const sessions = get().sessions.map(s => 
+                    s.id === sessionId ? { ...s, title: data.title, updated_at: new Date().toISOString() } : s
+                  )
+                  set({ sessions })
+                  console.log('✅ [标题已更新到本地状态]', data.title)
+                }
               } else if (data.type === 'done') {
-                // 完成 - 不重新加载历史，避免重复
+                // 完成 - 刷新会话列表以确保同步（标题可能已更新）
+                await get().fetchSessions()
                 break
               } else if (data.type === 'error') {
                 throw new Error(data.content)
@@ -460,9 +472,8 @@ export const useChatStore = create(
         }
       }
       
-      // 刷新会话列表（但不重新加载当前会话的历史消息）
-      // 注意：不要在这里重新加载历史消息，因为我们已经通过流式更新了本地消息
-      get().fetchSessions()
+      // 流式响应完成后，再次刷新会话列表以确保同步（如果done事件中已刷新，这里会再次刷新但不会造成问题）
+      await get().fetchSessions()
       
     } catch (error) {
       console.error('流式请求失败:', error)

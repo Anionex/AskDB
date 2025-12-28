@@ -553,12 +553,20 @@ async def process_chat_message_stream(message: str, session_id: str, user_contex
                 # 检查是否是第一条消息，如果是则立即更新标题
                 stats = conversation_db.get_conversation_stats(session_id)
                 user_messages = stats.get('user_messages') or 0
+                logger.info(f"📊 [标题更新检查] session_id={session_id}, user_messages={user_messages}")
                 if user_messages == 1:
                     # 检查当前标题是否为"新对话"，如果是则更新为第一条消息
                     conversation = conversation_db.get_conversation(session_id, user_context.get('username'))
+                    logger.info(f"📊 [标题更新检查] 当前标题: {conversation.get('title') if conversation else 'None'}")
                     if conversation and conversation.get('title') == '新对话':
                         logger.info(f"🔄 检测到第一条消息，更新会话标题: {session_id}")
-                        conversation_db.auto_generate_title(session_id)
+                        new_title = conversation_db.auto_generate_title(session_id)
+                        logger.info(f"✅ [标题已更新] session_id={session_id}, new_title={new_title}")
+                        if new_title:
+                            # 立即通知前端标题已更新
+                            logger.info(f"📤 [发送标题更新事件] title={new_title}")
+                            yield f"data: {json.dumps({'type': 'title_updated', 'title': new_title}, ensure_ascii=False)}\n\n"
+                            await asyncio.sleep(0.001)
             except ValueError:
                 logger.warning(f"会话不存在，自动创建: {session_id}")
                 conversation_db.create_conversation(
@@ -574,7 +582,11 @@ async def process_chat_message_stream(message: str, session_id: str, user_contex
                 )
                 # 新创建的会话，立即更新标题
                 logger.info(f"🔄 新会话创建，更新标题: {session_id}")
-                conversation_db.auto_generate_title(session_id)
+                new_title = conversation_db.auto_generate_title(session_id)
+                if new_title:
+                    # 立即通知前端标题已更新
+                    yield f"data: {json.dumps({'type': 'title_updated', 'title': new_title}, ensure_ascii=False)}\n\n"
+                    await asyncio.sleep(0.001)
         
         from backend.agents import agent_manager
         from agno.agent import RunEvent
@@ -684,7 +696,11 @@ async def process_chat_message_stream(message: str, session_id: str, user_contex
                 conversation = conversation_db.get_conversation(session_id, user_context.get('username') if user_context else None)
                 if conversation and conversation.get('title') == '新对话':
                     logger.info(f"🔄 [备用检查] 检测到第一条消息，更新会话标题: {session_id}")
-                    conversation_db.auto_generate_title(session_id)
+                    new_title = conversation_db.auto_generate_title(session_id)
+                    if new_title:
+                        # 通知前端标题已更新
+                        yield f"data: {json.dumps({'type': 'title_updated', 'title': new_title}, ensure_ascii=False)}\n\n"
+                        await asyncio.sleep(0.001)
         
         # 🎯 生成智能推荐（在主回复完成后）
         try:
@@ -1090,7 +1106,9 @@ async def protected_chat_stream_endpoint(
 ):
     """流式聊天接口 - 使用 SSE"""
     logger.info(f"🌊 [Stream] 收到流式请求: user={user.get('username')}, message={message[:50]}, session={session_id}")
-    session_id = f"{user['username']}_{session_id}"
+    # 检查 session_id 是否已经包含用户名前缀，避免重复添加
+    if not session_id.startswith(f"{user['username']}_"):
+        session_id = f"{user['username']}_{session_id}"
     logger.info(f"🌊 [Stream] 完整session_id={session_id}")
     return StreamingResponse(
         process_chat_message_stream(message, session_id, user_context=user),
