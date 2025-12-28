@@ -52,15 +52,36 @@ def test_tool_calls():
                 print(f"     - 包含 {len(msg.tool_calls)} 个工具调用")
                 for call_idx, call in enumerate(msg.tool_calls):
                     print(f"\n       工具调用对象类型: {type(call)}")
-                    print(f"       工具调用对象属性: {[a for a in dir(call) if not a.startswith('_')]}")
                     
-                    # 尝试不同的方式提取信息
-                    if hasattr(call, 'function'):
-                        func = call.function
-                        print(f"       ✅ 有 function 属性")
-                        print(f"       function 类型: {type(func)}")
-                        print(f"       function 属性: {[a for a in dir(func) if not a.startswith('_')]}")
+                    # 如果是字典
+                    if isinstance(call, dict):
+                        print(f"       字典内容: {json.dumps(call, ensure_ascii=False, indent=10)[:500]}")
                         
+                        # 提取信息
+                        if 'function' in call:
+                            func_data = call['function']
+                            func_name = func_data.get('name', '')
+                            func_args = func_data.get('arguments', {})
+                            
+                            if isinstance(func_args, str):
+                                try:
+                                    func_args = json.loads(func_args)
+                                except:
+                                    pass
+                            
+                            tool_call_info = {
+                                'name': func_name,
+                                'arguments': func_args
+                            }
+                            tool_calls.append(tool_call_info)
+                            
+                            print(f"\n       ✅ 工具调用 #{call_idx + 1}:")
+                            print(f"         名称: {func_name}")
+                            print(f"         参数: {json.dumps(func_args, ensure_ascii=False, indent=10)[:200]}...")
+                    
+                    # 如果是对象
+                    elif hasattr(call, 'function'):
+                        func = call.function
                         args = func.arguments
                         if isinstance(args, str):
                             try:
@@ -74,23 +95,9 @@ def test_tool_calls():
                         }
                         tool_calls.append(tool_call_info)
                         
-                        print(f"\n       工具调用 #{call_idx + 1}:")
+                        print(f"\n       ✅ 工具调用 #{call_idx + 1}:")
                         print(f"         名称: {func.name}")
                         print(f"         参数: {json.dumps(args, ensure_ascii=False, indent=10)[:200]}...")
-                    else:
-                        # 尝试直接访问属性
-                        print(f"       ⚠️  没有 function 属性，尝试其他方式")
-                        if hasattr(call, 'name'):
-                            print(f"       有 name 属性: {call.name}")
-                        if hasattr(call, 'arguments'):
-                            print(f"       有 arguments 属性: {call.arguments}")
-                        
-                        # 尝试转换为字典
-                        if hasattr(call, 'to_dict'):
-                            call_dict = call.to_dict()
-                            print(f"       to_dict(): {json.dumps(call_dict, ensure_ascii=False, indent=10)[:300]}")
-                        elif hasattr(call, '__dict__'):
-                            print(f"       __dict__: {call.__dict__}")
     else:
         print("\n⚠️  response 没有 messages 属性")
     

@@ -28,12 +28,23 @@ export const ToolCallsDisplay = ({ toolCalls }) => {
 
   // 格式化参数显示
   const formatArguments = (args) => {
+    if (!args) {
+      return <Text type="secondary">(无)</Text>
+    }
+    
     if (typeof args === 'string') {
-      return args
+      return args.trim() ? args : <Text type="secondary">(无)</Text>
     }
     
     if (typeof args === 'object' && args !== null) {
-      return Object.entries(args).map(([key, value]) => {
+      const entries = Object.entries(args)
+      
+      // 如果是空对象，显示"(无)"
+      if (entries.length === 0) {
+        return <Text type="secondary">(无)</Text>
+      }
+      
+      return entries.map(([key, value]) => {
         // 对于长字符串，进行截断
         let displayValue = value
         if (typeof value === 'string' && value.length > 200) {
@@ -89,17 +100,46 @@ export const ToolCallsDisplay = ({ toolCalls }) => {
                   </Text>
                 </div>
                 
-                {call.arguments && (
+                <div style={{ 
+                  marginTop: '8px',
+                  padding: '8px',
+                  background: '#fafafa',
+                  borderRadius: '4px',
+                  fontSize: '12px'
+                }}>
+                  <Text type="secondary" style={{ fontSize: '11px' }}>调用参数:</Text>
+                  <div style={{ marginTop: '6px' }}>
+                    {formatArguments(call.arguments)}
+                  </div>
+                </div>
+                
+                {call.result && (
                   <div style={{ 
                     marginTop: '8px',
                     padding: '8px',
-                    background: '#fafafa',
+                    background: '#f6ffed',
                     borderRadius: '4px',
-                    fontSize: '12px'
+                    fontSize: '12px',
+                    border: '1px solid #b7eb8f'
                   }}>
-                    <Text type="secondary" style={{ fontSize: '11px' }}>调用参数:</Text>
-                    <div style={{ marginTop: '6px' }}>
-                      {formatArguments(call.arguments)}
+                    <Text type="secondary" style={{ fontSize: '11px', color: '#52c41a' }}>
+                      返回结果:
+                    </Text>
+                    <div style={{ 
+                      marginTop: '6px',
+                      maxHeight: '200px',
+                      overflowY: 'auto',
+                      overflowX: 'auto'
+                    }}>
+                      <Text code style={{ 
+                        whiteSpace: 'pre-wrap',
+                        wordBreak: 'break-word',
+                        fontSize: '11px'
+                      }}>
+                        {typeof call.result === 'string' && call.result.length > 500 
+                          ? call.result.substring(0, 500) + '\n\n... (结果过长，已截断)' 
+                          : String(call.result)}
+                      </Text>
                     </div>
                   </div>
                 )}

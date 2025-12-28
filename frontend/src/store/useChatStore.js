@@ -186,7 +186,60 @@ export const useChatStore = create((set, get) => ({
     }))
   },
 
-  // 发送消息
+  // 更新最后一条消息（用于流式更新）
+  updateLastMessage: (updates) => {
+    const sessionId = get().currentSessionId
+    if (!sessionId) return
+    
+    const currentMessages = get().messages[sessionId] || []
+    if (currentMessages.length === 0) return
+    
+    const lastIndex = currentMessages.length - 1
+    const updatedMessages = [...currentMessages]
+    updatedMessages[lastIndex] = {
+      ...updatedMessages[lastIndex],
+      ...updates
+    }
+    
+    set(state => ({
+      messages: {
+        ...state.messages,
+        [sessionId]: updatedMessages
+      }
+    }))
+  },
+
+  // 添加工具调用到最后一条消息
+  addToolCallToLastMessage: (toolCall) => {
+    const sessionId = get().currentSessionId
+    if (!sessionId) return
+    
+    const currentMessages = get().messages[sessionId] || []
+    if (currentMessages.length === 0) return
+    
+    const lastIndex = currentMessages.length - 1
+    const lastMessage = currentMessages[lastIndex]
+    
+    // 只更新assistant消息
+    if (lastMessage.type !== 'assistant') return
+    
+    const updatedMessages = [...currentMessages]
+    const existingToolCalls = lastMessage.toolCalls || []
+    
+    updatedMessages[lastIndex] = {
+      ...lastMessage,
+      toolCalls: [...existingToolCalls, toolCall]
+    }
+    
+    set(state => ({
+      messages: {
+        ...state.messages,
+        [sessionId]: updatedMessages
+      }
+    }))
+  },
+
+  // 发送消息（流式）
   sendMessage: async (content) => {
     const token = localStorage.getItem('askdb_token')
     if (!token) {
@@ -212,50 +265,110 @@ export const useChatStore = create((set, get) => ({
       timestamp: new Date().toISOString()
     })
 
+    // 添加一个空的 AI 消息，用于流式更新
+    const aiMessageId = Date.now() + 1
+    get().addMessage({
+      id: aiMessageId,
+      type: 'assistant',
+      content: '',
+      timestamp: new Date().toISOString(),
+      toolCalls: []
+    })
+
     set({ isThinking: true, isLoading: true, error: null })
 
     try {
-      const response = await axios.post(
-        `${API_BASE}/protected/chat`,
-        { message: content, session_id: sessionId },
-        {
-          headers: { Authorization: `Bearer ${token}` },
-          timeout: 60000
+      // 使用流式接口
+      const url = `${API_BASE}/protected/chat/stream?message=${encodeURIComponent(content)}&session_id=${sessionId}`
+      const response = await fetch(url, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Accept': 'text/event-stream'
         }
-      )
-
-      // 添加 AI 响应到本地缓存
-      get().addMessage({
-        id: Date.now() + 1,
-        type: 'assistant',
-        content: response.data.response,
-        timestamp: new Date().toISOString(),
-        success: response.data.success,
-        toolCalls: response.data.tool_calls || []
       })
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`)
+      }
+
+      const reader = response.body.getReader()
+      const decoder = new TextDecoder()
+      let buffer = ''
+
+      while (true) {
+        const { done, value } = await reader.read()
+        
+        if (done) break
+
+        buffer += decoder.decode(value, { stream: true })
+        const lines = buffer.split('\n')
+        buffer = lines.pop() || ''
+
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            try {
+              const data = JSON.parse(line.slice(6))
+              
+              if (data.type === 'content') {
+                // 更新内容
+                get().updateLastMessage({
+                  content: get().messages[sessionId]?.slice(-1)[0]?.content + data.content
+                })
+              } else if (data.type === 'tool_call') {
+                // 添加工具调用
+                get().addToolCallToLastMessage(data.data)
+              } else if (data.type === 'tool_result') {
+                // 更新工具返回结果
+                const currentMessages = get().messages[sessionId] || []
+                const lastMessage = currentMessages[currentMessages.length - 1]
+                if (lastMessage && lastMessage.toolCalls) {
+                  const updatedToolCalls = [...lastMessage.toolCalls]
+                  const toolIndex = updatedToolCalls.findIndex(t => 
+                    t.name === data.data.name && !t.result
+                  )
+                  if (toolIndex >= 0) {
+                    updatedToolCalls[toolIndex].result = data.data.result
+                    get().updateLastMessage({ toolCalls: updatedToolCalls })
+                  }
+                }
+              } else if (data.type === 'done') {
+                // 完成
+                break
+              } else if (data.type === 'error') {
+                throw new Error(data.content)
+              }
+            } catch (e) {
+              console.error('解析SSE数据失败:', e, line)
+            }
+          }
+        }
+      }
       
-      // 刷新会话列表（更新消息计数和时间）
+      // 刷新会话列表
       get().fetchSessions()
       
     } catch (error) {
-      if (error.name === 'AbortError' || error.code === 'ERR_CANCELED') {
-        get().addMessage({
-          id: Date.now() + 1,
-          type: 'system',
-          content: '思考已停止',
-          timestamp: new Date().toISOString()
-        })
-      } else if (error.response?.status === 401) {
-        set({ error: '登录已过期，请重新登录' })
-        window.location.reload()
-      } else {
-        get().addMessage({
-          id: Date.now() + 1,
-          type: 'error',
-          content: `错误: ${error.response?.data?.detail || error.message}`,
-          timestamp: new Date().toISOString()
-        })
-      }
+      console.error('流式请求失败:', error)
+      
+      // 删除空的 AI 消息，添加错误消息
+      const currentMessages = get().messages[sessionId] || []
+      const filteredMessages = currentMessages.filter(m => m.id !== aiMessageId)
+      
+      set(state => ({
+        messages: {
+          ...state.messages,
+          [sessionId]: [
+            ...filteredMessages,
+            {
+              id: Date.now(),
+              type: 'error',
+              content: `错误: ${error.message}`,
+              timestamp: new Date().toISOString()
+            }
+          ]
+        }
+      }))
     } finally {
       set({ isThinking: false, isLoading: false })
     }
