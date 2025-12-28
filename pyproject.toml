@@ -1,0 +1,101 @@
+[project]
+name = "askdb"
+version = "1.0.0"
+description = "AskDB - 自然语言数据库查询助手，基于 Agno 框架的智能数据库助手"
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+authors = [
+    { name = "AskDB Team" }
+]
+keywords = ["database", "llm", "ai", "natural-language", "sql", "agno"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+]
+
+dependencies = [
+    # Agno Framework
+    "agno>=0.1.0",
+    
+    # Core LLM and AI dependencies
+    "openai>=1.0.0",
+    "google-generativeai",
+    
+    # Database connectivity and ORM
+    "sqlalchemy>=2.0.0",
+    "psycopg2-binary>=2.9.0",
+    "pymysql>=1.1.0",
+    
+    # Vector operations and semantic search
+    "sentence-transformers>=2.2.0",
+    "numpy>=1.24.0",
+    "scipy>=1.10.0",
+    
+    # Data validation and configuration
+    "pydantic>=2.0.0",
+    "pydantic-settings>=2.0.0",
+    
+    # Environment and configuration management
+    "python-dotenv>=1.0.0",
+    
+    # CLI and terminal UI
+    "rich>=13.0.0",
+    "click>=8.0.0",
+    
+    # Web framework
+    "fastapi>=0.104.0",
+    "uvicorn>=0.24.0",
+    
+    # Async utilities
+    "nest_asyncio>=1.5.0",
+    "aiohttp>=3.8.0",
+    
+    # Additional utilities
+    "requests>=2.28.0",
+    "urllib3>=1.26.0",
+    "certifi>=2022.12.7",
+]
+
+[project.optional-dependencies]
+# Optional dependencies for enhanced functionality
+vector = [
+    "faiss-cpu>=1.7.0",  # For efficient vector similarity search
+]
+web = [
+    "streamlit>=1.28.0",  # For web UI option
+]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-asyncio>=0.21.0",
+]
+all = [
+    "faiss-cpu>=1.7.0",
+    "streamlit>=1.28.0",
+    "pytest>=7.0.0",
+    "pytest-asyncio>=0.21.0",
+]
+
+[project.scripts]
+askdb = "askdb_agno:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.uv]
+dev-dependencies = [
+    "pytest>=7.0.0",
+    "pytest-asyncio>=0.21.0",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["tools", "lib", "dialects", "backend"]
+
