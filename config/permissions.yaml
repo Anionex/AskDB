@@ -1,0 +1,95 @@
+# 数据脱敏与行级权限控制配置
+# 定义不同用户类型对数据库表的访问权限
+
+# 权限配置说明：
+# - table: 表名
+# - roles: 角色配置列表
+#   - role_pattern: 角色匹配模式（支持正则表达式）
+#   - allowed_columns: 允许访问的列（null表示所有列，[]表示没有列）
+#   - row_filter: 行级过滤条件（SQL WHERE子句，支持{username}占位符）
+#   - forbidden_columns: 禁止访问的列（用于数据脱敏）
+
+permissions:
+  # students 表权限配置
+  - table: students
+    roles:
+      # admin角色：可以看到所有信息
+      - role_pattern: "^admin$"
+        allowed_columns: null  # null表示所有列
+        row_filter: null       # null表示所有行
+        forbidden_columns: []  # 无禁止列
+      
+      # teach开头的用户：可以看到所有students
+      - role_pattern: "^teach.*"
+        allowed_columns: null  # 所有列
+        row_filter: null       # 所有行
+        forbidden_columns: []  # 无禁止列
+      
+      # stu开头的用户：只能看到自己的信息
+      - role_pattern: "^stu.*"
+        allowed_columns: null  # 所有列
+        row_filter: "sid = '{username}'"  # 只能看到sid和用户名一致的记录
+        forbidden_columns: []  # 无禁止列
+  
+  # teacher 表权限配置
+  - table: teacher
+    roles:
+      # admin角色：可以看到所有信息
+      - role_pattern: "^admin$"
+        allowed_columns: null
+        row_filter: null
+        forbidden_columns: []
+      
+      # teach开头的用户：只能看到自己的信息
+      - role_pattern: "^teach.*"
+        allowed_columns: null
+        row_filter: "tid = '{username}'"  # 只能看到tid和用户名一致的记录
+        forbidden_columns: []
+      
+      # stu开头的用户：不能访问teacher表
+      - role_pattern: "^stu.*"
+        allowed_columns: []  # 不允许访问任何列
+        row_filter: "1=0"     # 永远返回空结果
+        forbidden_columns: null
+  
+  # choices 表权限配置
+  - table: choices
+    roles:
+      # admin角色：可以看到所有信息
+      - role_pattern: "^admin$"
+        allowed_columns: null
+        row_filter: null
+        forbidden_columns: []
+      
+      # teach开头的用户：只能看到和他有关的选课记录
+      - role_pattern: "^teach.*"
+        allowed_columns: null
+        row_filter: "tid = '{username}'"  # 只能看到tid和用户名一致的记录
+        forbidden_columns: []
+      
+      # stu开头的用户：只能看到和他有关的选课记录
+      - role_pattern: "^stu.*"
+        allowed_columns: null
+        row_filter: "sid = '{username}'"  # 只能看到sid和用户名一致的记录
+        forbidden_columns: []
+
+# 默认权限：当用户不匹配任何规则时应用
+default_permission:
+  allowed_columns: []
+  row_filter: "1=0"  # 默认不允许访问
+  forbidden_columns: null
+
+# 全局配置
+global_settings:
+  # 是否启用权限控制
+  enabled: true
+  
+  # 是否记录权限检查日志
+  log_checks: true
+  
+  # 是否在查询失败时返回详细错误信息
+  verbose_errors: true
+  
+  # 权限拒绝时的默认消息
+  access_denied_message: "您没有权限访问此数据"
+

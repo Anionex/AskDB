@@ -4,6 +4,7 @@ import { SendOutlined, StopOutlined, UserOutlined, RobotOutlined, BulbOutlined }
 import { useChatStore } from '../store/useChatStore'
 import { MixedContentDisplay } from './MixedContentDisplay'
 import { ToolCallsDisplay } from './ToolCallsDisplay'
+import { DangerConfirmDialog } from './DangerConfirmDialog'
 
 const { Content } = Layout
 const { Text } = Typography
@@ -16,7 +17,10 @@ export const ChatArea = () => {
     isLoading,
     sendMessage,
     addMessage,
-    recommendations
+    recommendations,
+    pendingConfirmation,
+    confirmDangerousAction,
+    rejectDangerousAction
   } = useChatStore()
 
   const [inputValue, setInputValue] = useState('')
@@ -63,8 +67,27 @@ export const ChatArea = () => {
       handleSend()
     }
   }
+  
+  const handleConfirmDangerous = async () => {
+    await confirmDangerousAction()
+  }
+  
+  const handleRejectDangerous = () => {
+    rejectDangerousAction()
+  }
 
   return (
+    <>
+      {/* 危险操作确认对话框 */}
+      <DangerConfirmDialog
+        visible={!!pendingConfirmation}
+        onConfirm={handleConfirmDangerous}
+        onCancel={handleRejectDangerous}
+        sqlStatement={pendingConfirmation?.sql}
+        explanation={pendingConfirmation?.explanation}
+        expectedImpact={pendingConfirmation?.expected_impact}
+      />
+      
     <Content style={{ 
       display: 'flex', 
       flexDirection: 'column', 
@@ -249,6 +272,7 @@ export const ChatArea = () => {
         </Input.Group>
       </div>
     </Content>
+    </>
   )
 }
 

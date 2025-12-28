@@ -457,9 +457,9 @@ def process_chat_message(message: str, session_id: str = "web-session", user_con
                     content=message
                 )
         
-        # 使用 AgentManager 获取或创建 agent
+        # 使用 AgentManager 获取或创建 agent（带用户上下文）
         from backend.agents import agent_manager
-        agent = agent_manager.get_agent(session_id, use_memory=True)
+        agent = agent_manager.get_agent(session_id, use_memory=True, user_context=user_context)
         
         # 处理消息
         response = agent.run(message)
@@ -591,7 +591,7 @@ async def process_chat_message_stream(message: str, session_id: str, user_contex
         from backend.agents import agent_manager
         from agno.agent import RunEvent
         
-        agent = agent_manager.get_agent(session_id, use_memory=True)
+        agent = agent_manager.get_agent(session_id, use_memory=True, user_context=user_context)
         
         # 使用真正的流式API：stream=True 和 stream_events=True
         # stream_events=True 是关键，用于接收工具调用事件！
@@ -659,6 +659,27 @@ async def process_chat_message_stream(message: str, session_id: str, user_contex
             elif chunk.event == RunEvent.tool_call_completed:
                 tool_name = getattr(chunk.tool, 'tool_name', '')
                 tool_result = getattr(chunk.tool, 'result', '')
+                
+                # 🔒 检测是否需要确认
+                try:
+                    if isinstance(tool_result, str):
+                        result_data = json.loads(tool_result)
+                        if result_data.get('needs_confirmation'):
+                            # 发送确认请求事件
+                            logger.info(f"🔒 检测到需要确认的操作: {tool_name}")
+                            yield f"data: {json.dumps({'type': 'needs_confirmation', 'data': result_data}, ensure_ascii=False)}\n\n"
+                            await asyncio.sleep(0.001)
+                            
+                            # 记录确认请求（不继续处理）
+                            for tc in tool_calls_info:
+                                if tc['name'] == tool_name and tc['result'] is None:
+                                    tc['result'] = tool_result
+                                    tc['completedPosition'] = current_content_length
+                                    tc['status'] = 'needs_confirmation'
+                                    break
+                            continue  # 跳过正常的结果发送
+                except (json.JSONDecodeError, TypeError):
+                    pass  # 不是JSON格式，继续正常处理
                 
                 # 实时发送工具调用结果
                 yield f"data: {json.dumps({'type': 'tool_call_result', 'data': {'name': tool_name, 'result': tool_result}}, ensure_ascii=False)}\n\n"
@@ -1414,6 +1435,75 @@ async def auto_check_index(user: Dict = Depends(verify_token)):
             "should_index": True,
             "error": str(e)
         }
+
+@app.post("/api/protected/confirm-action")
+async def confirm_dangerous_action(
+    request: ConfirmActionRequest,
+    user: Dict = Depends(verify_token)
+):
+    """
+    确认或拒绝危险操作
+    
+    当AI检测到危险操作时，会先请求用户确认。
+    用户通过此API确认或拒绝操作。
+    """
+    try:
+        if request.action == "reject":
+            logger.info(f"用户 {user['username']} 拒绝执行危险操作")
+            return {
+                "success": True,
+                "message": "操作已取消",
+                "executed": False
+            }
+        
+        if request.action == "approve":
+            logger.info(f"用户 {user['username']} 确认执行危险操作: {request.sql}")
+            
+            # 执行SQL操作
+            if not HAS_AGENT:
+                raise HTTPException(
+                    status_code=503,
+                    detail="数据库服务未加载"
+                )
+            
+            # 设置用户上下文
+            db.set_user_context(user)
+            
+            # 执行操作（允许修改）
+            result = db.execute_query(request.sql, allow_modifications=True, user_context=user)
+            
+            if result.get("success"):
+                # 保存操作到会话历史
+                if conversation_db and request.session_id:
+                    conversation_db.add_message(
+                        conversation_id=request.session_id,
+                        role='system',
+                        content=f"✅ 用户已确认并执行: {request.explanation}\n\n受影响的行数: {result.get('row_count', 0)}"
+                    )
+                
+                return {
+                    "success": True,
+                    "message": f"操作执行成功。{request.explanation}",
+                    "executed": True,
+                    "rows_affected": result.get("row_count", 0),
+                    "sql": request.sql
+                }
+            else:
+                return {
+                    "success": False,
+                    "message": f"操作执行失败: {result.get('error', '未知错误')}",
+                    "executed": False,
+                    "error": result.get("error")
+                }
+        
+        raise HTTPException(status_code=400, detail="无效的操作类型")
+        
+    except Exception as e:
+        logger.error(f"确认操作失败: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"操作失败: {str(e)}"
+        )
 
 @app.post("/api/protected/vector/search", response_model=VectorSearchResponse)
 async def vector_search(

@@ -15,6 +15,7 @@ from sqlalchemy import create_engine, text, inspect
 from sqlalchemy.engine import Engine
 
 from lib.safety import SafetyManager, RiskLevel
+from lib.permissions import get_permission_checker, PermissionDeniedException
 from tools.schema import SchemaManager
 from tools.web_search import WebSearchTool, WebSearchError  # 导入修复后的web_search
 from rich.prompt import Confirm
@@ -31,9 +32,11 @@ class DatabaseConnection:
         self.engine: Optional[Engine] = None
         self._connected = False
         self.safety_manager = SafetyManager()
+        self.permission_checker = get_permission_checker()
         self.schema_manager: Optional[SchemaManager] = None
         self._semantic_search_enabled = os.getenv("ENABLE_SEMANTIC_SEARCH", "false").lower() == "true"
         self._schema_initialized = False
+        self._current_user_context: Optional[Dict[str, Any]] = None
     
     def connect(self) -> bool:
         """连接数据库"""
@@ -95,10 +98,40 @@ class DatabaseConnection:
     def is_connected(self) -> bool:
         return self._connected and self.engine is not None
     
-    def execute_query(self, sql: str, allow_modifications: bool = False) -> dict:
-        """执行SQL查询"""
+    def set_user_context(self, user_context: Optional[Dict[str, Any]]):
+        """设置当前用户上下文"""
+        self._current_user_context = user_context
+        if user_context:
+            logger.info(f"用户上下文已设置: {user_context.get('username')}")
+    
+    def execute_query(self, sql: str, allow_modifications: bool = False, user_context: Optional[Dict[str, Any]] = None) -> dict:
+        """执行SQL查询（带权限控制）"""
         if not self.is_connected:
             self.connect()
+        
+        # 使用传入的用户上下文或当前用户上下文
+        ctx = user_context or self._current_user_context
+        
+        # 权限检查和SQL转换（只对SELECT查询）
+        original_sql = sql
+        warnings = []
+        if ctx and ctx.get('username'):
+            try:
+                sql, warnings = self.permission_checker.check_and_transform_query(
+                    sql, 
+                    ctx.get('username'),
+                    ctx.get('user_type')
+                )
+                if warnings and self.permission_checker.config.log_checks:
+                    logger.info(f"权限检查警告: {warnings}")
+            except PermissionDeniedException as e:
+                logger.warning(f"权限被拒绝: {e}")
+                return {
+                    "success": False,
+                    "error": str(e),
+                    "permission_denied": True,
+                    "sql": original_sql
+                }
         
         # 安全检查
         safety_result = self.safety_manager.assess_query_safety(sql)
@@ -129,20 +162,29 @@ class DatabaseConnection:
                     columns = list(result.keys())
                     rows = result.fetchall()
                     data = [dict(zip(columns, row)) for row in rows]
-                    return {
+                    response = {
                         "success": True,
                         "data": data,
                         "row_count": len(data),
                         "sql": sql
                     }
+                    if warnings:
+                        response["warnings"] = warnings
+                    if sql != original_sql:
+                        response["original_sql"] = original_sql
+                        response["transformed"] = True
+                    return response
                 else:
                     conn.commit()
-                    return {
+                    response = {
                         "success": True,
                         "data": [],
                         "row_count": result.rowcount,
                         "sql": sql
                     }
+                    if warnings:
+                        response["warnings"] = warnings
+                    return response
         except Exception as e:
             logger.error(f"❌ 查询执行失败: {e}")
             return {
@@ -197,7 +239,7 @@ db = DatabaseConnection()
 class DatabaseTools(Toolkit):
     """数据库工具集"""
     
-    def __init__(self):
+    def __init__(self, user_context: Optional[Dict[str, Any]] = None):
         super().__init__(
             name="database",
             tools=[
@@ -209,34 +251,66 @@ class DatabaseTools(Toolkit):
             ]
         )
         self.safety_manager = db.safety_manager
+        self.user_context = user_context
+        if user_context:
+            db.set_user_context(user_context)
     
     def execute_query(self, sql_query: str) -> str:
-        """执行SELECT查询"""
+        """执行SELECT查询（带权限控制）"""
         try:
-            result = db.execute_query(sql_query, allow_modifications=False)
+            result = db.execute_query(sql_query, allow_modifications=False, user_context=self.user_context)
+            
+            # 检查权限拒绝
+            if result.get("permission_denied"):
+                return json.dumps({
+                    "success": False,
+                    "error": result.get("error", "权限被拒绝"),
+                    "permission_denied": True
+                }, ensure_ascii=False, indent=2)
+            
             if result["success"]:
                 data = result["data"]
+                response = {}
+                
                 if len(data) > 15:
                     data = data[:15]
-                    return json.dumps({
+                    response = {
                         "success": True,
                         "data": data,
                         "total_rows": result["row_count"],
                         "note": f"显示前15条，共{result['row_count']}条记录"
-                    }, ensure_ascii=False, default=str, indent=2)
-                return json.dumps({
-                    "success": True,
-                    "data": data,
-                    "row_count": result["row_count"]
-                }, ensure_ascii=False, default=str, indent=2)
+                    }
+                else:
+                    response = {
+                        "success": True,
+                        "data": data,
+                        "row_count": result["row_count"]
+                    }
+                
+                # 添加权限警告
+                if result.get("warnings"):
+                    response["warnings"] = result["warnings"]
+                if result.get("transformed"):
+                    response["security_note"] = "查询已根据您的权限进行过滤"
+                
+                return json.dumps(response, ensure_ascii=False, default=str, indent=2)
+            
             return json.dumps({"success": False, "error": result.get("error", "未知错误")})
         except Exception as e:
             return json.dumps({"success": False, "error": str(e)})
     
     def execute_non_query(self, sql_statement: str) -> str:
-        """执行数据修改操作"""
+        """执行数据修改操作（带权限控制）"""
         try:
-            result = db.execute_query(sql_statement, allow_modifications=True)
+            result = db.execute_query(sql_statement, allow_modifications=True, user_context=self.user_context)
+            
+            # 检查权限拒绝
+            if result.get("permission_denied"):
+                return json.dumps({
+                    "success": False,
+                    "error": result.get("error", "权限被拒绝"),
+                    "permission_denied": True
+                }, ensure_ascii=False, indent=2)
             
             if result.get("safety_blocked"):
                 return json.dumps({

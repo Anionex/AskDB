@@ -51,13 +51,14 @@ def setup_logging(debug: bool = False):
     logging.getLogger('httpx').setLevel(logging.WARNING)
 
 
-def create_agent(debug: bool = False, enable_memory: bool = True, session_id: str = None) -> Agent:
+def create_agent(debug: bool = False, enable_memory: bool = True, session_id: str = None, user_context: dict = None) -> Agent:
     """Create the AskDB Agno Agent with all tools and instructions.
     
     Args:
         debug: Enable debug mode
         enable_memory: Enable conversation history (requires database storage)
         session_id: Session ID for conversation history (auto-generated if not provided)
+        user_context: User context for permission control (optional)
     """
     
     # Get LLM provider configuration
@@ -325,11 +326,14 @@ execute_non_query_with_explanation(
     # 添加工具
     if TOOLS_AVAILABLE:
         try:
-            # 添加增强版数据库工具（集成向量检索）
-            enhanced_db_tools = EnhancedDatabaseTools()
+            # 添加增强版数据库工具（集成向量检索和权限控制）
+            enhanced_db_tools = EnhancedDatabaseTools(user_context=user_context)
             tools_list.append(enhanced_db_tools)
             
-            logger.info("✅ Enhanced database tools with vector retrieval loaded")
+            if user_context:
+                logger.info(f"✅ Enhanced database tools loaded with user context: {user_context.get('username')}")
+            else:
+                logger.info("✅ Enhanced database tools with vector retrieval loaded")
             
         except Exception as e:
             logger.error(f"❌ 添加工具失败: {e}")

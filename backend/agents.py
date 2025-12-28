@@ -36,17 +36,21 @@ class AgentManager:
             del self.agents[session_id]
             print(f"Cleaned up expired session: {session_id}")
     
-    def get_agent(self, session_id: str, use_memory: bool = True):
-        """Get or create agent"""
+    def get_agent(self, session_id: str, use_memory: bool = True, user_context: Optional[dict] = None):
+        """Get or create agent with user context"""
         from askdb_agno import create_agent
         
         if session_id not in self.agents:
             self.agents[session_id] = {
-                'agent': create_agent(enable_memory=use_memory, session_id=session_id),
-                'last_activity': datetime.now()
+                'agent': create_agent(enable_memory=use_memory, session_id=session_id, user_context=user_context),
+                'last_activity': datetime.now(),
+                'user_context': user_context
             }
         else:
             self.agents[session_id]['last_activity'] = datetime.now()
+            # 更新用户上下文（如果提供）
+            if user_context:
+                self.agents[session_id]['user_context'] = user_context
         
         return self.agents[session_id]['agent']
 

@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 class EnhancedDatabaseTools(Toolkit):
     """增强版数据库工具集 - 集成向量检索"""
     
-    def __init__(self):
+    def __init__(self, user_context: Optional[Dict[str, Any]] = None):
         super().__init__(
             name="enhanced_database",
             tools=[
@@ -31,6 +31,9 @@ class EnhancedDatabaseTools(Toolkit):
         )
         self.db = db
         self.vector_store = vector_store
+        self.user_context = user_context
+        if user_context:
+            db.set_user_context(user_context)
     
     def semantic_search_schema(self, query: str, top_k: int = 5) -> str:
         """
@@ -199,8 +202,19 @@ class EnhancedDatabaseTools(Toolkit):
                     "error": "必须提供清晰的查询解释（至少10个字符）"
                 }, ensure_ascii=False, indent=2)
             
-            # 执行查询
-            result = self.db.execute_query(sql_query, allow_modifications=False)
+            # 执行查询（带权限控制）
+            result = self.db.execute_query(sql_query, allow_modifications=False, user_context=self.user_context)
+            
+            # 检查权限拒绝
+            if result.get("permission_denied"):
+                return json.dumps({
+                    "success": False,
+                    "explanation": explanation,
+                    "sql": sql_query,
+                    "error": result.get("error", "权限被拒绝"),
+                    "permission_denied": True,
+                    "message": "您没有权限执行此查询"
+                }, ensure_ascii=False, indent=2)
             
             if result["success"]:
                 data = result["data"]
@@ -213,7 +227,7 @@ class EnhancedDatabaseTools(Toolkit):
                 else:
                     truncated = False
                 
-                return json.dumps({
+                response = {
                     "success": True,
                     "explanation": explanation,
                     "sql": sql_query,
@@ -221,7 +235,15 @@ class EnhancedDatabaseTools(Toolkit):
                     "row_count": row_count,
                     "truncated": truncated,
                     "message": f"查询成功。{explanation}"
-                }, ensure_ascii=False, default=str, indent=2)
+                }
+                
+                # 添加权限警告
+                if result.get("warnings"):
+                    response["warnings"] = result["warnings"]
+                if result.get("transformed"):
+                    response["security_note"] = "查询已根据您的权限进行过滤"
+                
+                return json.dumps(response, ensure_ascii=False, default=str, indent=2)
             else:
                 return json.dumps({
                     "success": False,
@@ -244,7 +266,7 @@ class EnhancedDatabaseTools(Toolkit):
         """
         执行数据修改操作（INSERT/UPDATE/DELETE）并提供详细解释
         
-        **警告**: 这是危险操作！必须提供清晰的解释和影响评估。
+        **重要**: 对于Web应用，此方法会返回需要用户确认的请求，而不是直接执行。
         
         Args:
             sql_statement: SQL 修改语句
@@ -252,7 +274,7 @@ class EnhancedDatabaseTools(Toolkit):
             expected_impact: 预期影响，例如 "将修改约10条记录" （必须提供！）
         
         Returns:
-            包含执行结果、解释和影响的 JSON
+            包含确认请求信息的 JSON
         """
         try:
             if not explanation or len(explanation.strip()) < 15:
@@ -267,37 +289,79 @@ class EnhancedDatabaseTools(Toolkit):
                     "error": "必须提供预期影响说明（至少10个字符）"
                 }, ensure_ascii=False, indent=2)
             
-            # 执行修改操作（会触发安全检查和用户确认）
-            result = self.db.execute_query(sql_statement, allow_modifications=True)
-            
-            if result.get("safety_blocked"):
+            # 🔒 先进行权限检查
+            # 创建一个测试查询来检查权限（不实际执行）
+            from lib.permissions import get_permission_checker, PermissionDeniedException
+            try:
+                permission_checker = get_permission_checker()
+                if self.user_context and self.user_context.get('username'):
+                    # 只进行权限检查，不转换SQL
+                    _, warnings = permission_checker.check_and_transform_query(
+                        sql_statement,
+                        self.user_context.get('username'),
+                        self.user_context.get('user_type')
+                    )
+            except PermissionDeniedException as e:
                 return json.dumps({
                     "success": False,
-                    "blocked": True,
                     "explanation": explanation,
                     "expected_impact": expected_impact,
                     "sql": sql_statement,
-                    "error": "操作被用户或安全系统阻止",
-                    "message": "用户拒绝执行此危险操作"
+                    "error": str(e),
+                    "permission_denied": True,
+                    "message": "您没有权限执行此操作"
                 }, ensure_ascii=False, indent=2)
             
-            if result["success"]:
+            # 🔒 根据操作类型判断是否需要确认
+            sql_upper = sql_statement.upper()
+            
+            # 真正的高危操作：会删除或清空数据
+            is_critical = any(keyword in sql_upper for keyword in ['DROP', 'DELETE', 'TRUNCATE'])
+            
+            if is_critical:
+                # 高危操作：需要用户确认
                 return json.dumps({
-                    "success": True,
+                    "success": False,
+                    "needs_confirmation": True,
+                    "sql": sql_statement,
                     "explanation": explanation,
                     "expected_impact": expected_impact,
-                    "sql": sql_statement,
-                    "rows_affected": result.get("row_count", 0),
-                    "message": f"操作成功。{explanation}。实际影响: {result.get('row_count', 0)} 行"
+                    "message": "⚠️ 这是高危操作（会删除数据），需要用户确认。",
+                    "risk_level": "critical"
                 }, ensure_ascii=False, indent=2)
             else:
-                return json.dumps({
-                    "success": False,
-                    "explanation": explanation,
-                    "expected_impact": expected_impact,
-                    "sql": sql_statement,
-                    "error": result.get("error", "未知错误")
-                }, ensure_ascii=False, indent=2)
+                # 低风险操作（CREATE/INSERT/UPDATE/ALTER）：直接执行
+                logger.info(f"执行低风险操作: {sql_statement[:100]}...")
+                result = self.db.execute_query(sql_statement, allow_modifications=True)
+                
+                if result.get("safety_blocked"):
+                    return json.dumps({
+                        "success": False,
+                        "blocked": True,
+                        "explanation": explanation,
+                        "expected_impact": expected_impact,
+                        "sql": sql_statement,
+                        "error": "操作被安全系统阻止",
+                        "message": "操作被安全系统阻止"
+                    }, ensure_ascii=False, indent=2)
+                
+                if result["success"]:
+                    return json.dumps({
+                        "success": True,
+                        "explanation": explanation,
+                        "expected_impact": expected_impact,
+                        "sql": sql_statement,
+                        "rows_affected": result.get("row_count", 0),
+                        "message": f"✅ 操作成功。{explanation}。实际影响: {result.get('row_count', 0)} 行"
+                    }, ensure_ascii=False, indent=2)
+                else:
+                    return json.dumps({
+                        "success": False,
+                        "explanation": explanation,
+                        "expected_impact": expected_impact,
+                        "sql": sql_statement,
+                        "error": result.get("error", "未知错误")
+                    }, ensure_ascii=False, indent=2)
                 
         except Exception as e:
             return json.dumps({

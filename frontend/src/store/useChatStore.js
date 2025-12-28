@@ -27,6 +27,9 @@ export const useChatStore = create(
   
   // 推荐查询
   recommendations: [],
+  
+  // 确认操作状态
+  pendingConfirmation: null, // { sql, explanation, expected_impact, session_id }
 
   // 获取会话列表
   fetchSessions: async () => {
@@ -437,6 +440,17 @@ export const useChatStore = create(
                   get().updateLastMessage({ toolCalls: updatedToolCalls })
                   console.log('📝 [工具调用已更新]', updatedToolCalls)
                 }
+              } else if (data.type === 'needs_confirmation') {
+                // 🔒 收到确认请求
+                console.log('🔒 [收到确认请求]', data.data)
+                set({ 
+                  pendingConfirmation: {
+                    ...data.data,
+                    session_id: sessionId
+                  },
+                  isThinking: false,
+                  isLoading: false
+                })
               } else if (data.type === 'recommendations') {
                 // 收到推荐查询
                 console.log('💡 [收到推荐查询]', data.data)
@@ -543,6 +557,75 @@ export const useChatStore = create(
     }
   },
   
+  // 确认危险操作
+  confirmDangerousAction: async () => {
+    const token = localStorage.getItem('askdb_token')
+    const confirmation = get().pendingConfirmation
+    
+    if (!token || !confirmation) return
+    
+    try {
+      const response = await axios.post(
+        `${API_BASE}/protected/confirm-action`,
+        {
+          session_id: confirmation.session_id,
+          sql: confirmation.sql,
+          explanation: confirmation.explanation,
+          action: 'approve'
+        },
+        { headers: { Authorization: `Bearer ${token}` } }
+      )
+      
+      if (response.data.success) {
+        // 添加成功消息
+        get().addMessage({
+          id: Date.now(),
+          type: 'assistant',
+          content: `✅ ${response.data.message}\n\n受影响的行数: ${response.data.rows_affected}`,
+          timestamp: new Date().toISOString()
+        })
+      } else {
+        // 添加失败消息
+        get().addMessage({
+          id: Date.now(),
+          type: 'error',
+          content: `❌ 操作失败: ${response.data.message}`,
+          timestamp: new Date().toISOString()
+        })
+      }
+      
+      // 清除待确认状态
+      set({ pendingConfirmation: null })
+      
+    } catch (error) {
+      console.error('确认操作失败:', error)
+      get().addMessage({
+        id: Date.now(),
+        type: 'error',
+        content: `❌ 确认操作失败: ${error.message}`,
+        timestamp: new Date().toISOString()
+      })
+      set({ pendingConfirmation: null })
+    }
+  },
+  
+  // 拒绝危险操作
+  rejectDangerousAction: () => {
+    const confirmation = get().pendingConfirmation
+    if (!confirmation) return
+    
+    // 添加取消消息
+    get().addMessage({
+      id: Date.now(),
+      type: 'assistant',
+      content: '❌ 操作已取消。',
+      timestamp: new Date().toISOString()
+    })
+    
+    // 清除待确认状态
+    set({ pendingConfirmation: null })
+  },
+  
   // 清理：登出时清空所有状态
   cleanup: () => {
     set({
@@ -553,7 +636,8 @@ export const useChatStore = create(
       isLoading: false,
       error: null,
       databaseInfo: null,
-      sessionsLoaded: false
+      sessionsLoaded: false,
+      pendingConfirmation: null
     })
   }
 }),
