@@ -175,6 +175,7 @@ class ChatResponse(BaseModel):
     success: bool
     response: str
     session_id: str
+    tool_calls: Optional[List[Dict[str, Any]]] = None
 
 class SessionInfo(BaseModel):
     id: str
@@ -910,7 +911,8 @@ async def protected_chat_endpoint(
         return ChatResponse(
             success=result["success"],
             response=result["response"],
-            session_id=session_id
+            session_id=session_id,
+            tool_calls=result.get("tool_calls", [])
         )
         
     except Exception as e:
