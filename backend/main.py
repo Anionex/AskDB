@@ -118,10 +118,11 @@ class RegisterRequest(BaseModel):
 
     @validator('username')
     def validate_username(cls, v):
-        if len(v) < 3 or len(v) > 20:
-            raise ValueError('用户名长度必须在3-20字符之间')
-        if not re.match(r'^[a-zA-Z0-9_]+$', v):
-            raise ValueError('用户名只能包含字母、数字和下划线')
+        if len(v) < 1 or len(v) > 50:
+            raise ValueError('用户名长度必须在1-50字符之间')
+        # 允许纯数字（学号/工号）或字母数字下划线组合（管理员）
+        if not (re.match(r'^\d+$', v) or re.match(r'^[a-zA-Z0-9_]+$', v)):
+            raise ValueError('用户名必须是纯数字（学号/工号）或字母、数字、下划线组合')
         return v
 
     @validator('password')
@@ -132,8 +133,8 @@ class RegisterRequest(BaseModel):
 
     @validator('user_type')
     def validate_user_type(cls, v):
-        if v not in ['manager', 'user']:
-            raise ValueError('用户类型必须是manager或user')
+        if v not in ['student', 'teacher', 'manager']:
+            raise ValueError('用户类型必须是student、teacher或manager')
         return v
 
 class LoginRequest(BaseModel):
@@ -254,18 +255,69 @@ def init_database():
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS users (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            username VARCHAR(50) UNIQUE NOT NULL,
-            email VARCHAR(100) UNIQUE NOT NULL,
-            password_hash VARCHAR(255) NOT NULL,
-            user_type VARCHAR(10) NOT NULL CHECK (user_type IN ('manager', 'user')),
-            is_active BOOLEAN DEFAULT 1,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            last_login TIMESTAMP
-        )
-    ''')
+    # 检查表是否存在
+    cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='users'")
+    table_exists = cursor.fetchone() is not None
+    
+    if table_exists:
+        # 检查是否需要迁移（检查约束是否包含新用户类型）
+        cursor.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='users'")
+        result = cursor.fetchone()
+        if result:
+            create_sql = result[0]
+            
+            # 如果约束中不包含 'student'，需要迁移
+            if "'student'" not in create_sql or "'teacher'" not in create_sql:
+                logger.info("检测到需要迁移用户表，更新 user_type 约束...")
+                # 备份现有数据（使用列名）
+                cursor.execute("SELECT id, username, email, password_hash, user_type, is_active, created_at, last_login FROM users")
+                users_data = cursor.fetchall()
+                
+                # 删除旧表
+                cursor.execute("DROP TABLE users")
+                
+                # 创建新表（支持新的用户类型）
+                cursor.execute('''
+                    CREATE TABLE users (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        username VARCHAR(50) UNIQUE NOT NULL,
+                        email VARCHAR(100) UNIQUE NOT NULL,
+                        password_hash VARCHAR(255) NOT NULL,
+                        user_type VARCHAR(10) NOT NULL CHECK (user_type IN ('student', 'teacher', 'manager')),
+                        is_active BOOLEAN DEFAULT 1,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        last_login TIMESTAMP
+                    )
+                ''')
+                
+                # 恢复数据（将旧的 'user' 类型转换为 'student'）
+                for user in users_data:
+                    user_type = user[4]  # user_type 字段（第5个字段，索引4）
+                    if user_type == 'user':
+                        user_type = 'student'  # 将旧的 'user' 转换为 'student'
+                    elif user_type not in ['student', 'teacher', 'manager']:
+                        user_type = 'student'  # 未知类型默认为 'student'
+                    
+                    cursor.execute('''
+                        INSERT INTO users (id, username, email, password_hash, user_type, is_active, created_at, last_login)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    ''', (user[0], user[1], user[2], user[3], user_type, user[5], user[6], user[7] if len(user) > 7 else None))
+                
+                logger.info(f"用户表迁移完成，恢复了 {len(users_data)} 条记录")
+    else:
+        # 创建新表
+        cursor.execute('''
+            CREATE TABLE users (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                username VARCHAR(50) UNIQUE NOT NULL,
+                email VARCHAR(100) UNIQUE NOT NULL,
+                password_hash VARCHAR(255) NOT NULL,
+                user_type VARCHAR(10) NOT NULL CHECK (user_type IN ('student', 'teacher', 'manager')),
+                is_active BOOLEAN DEFAULT 1,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                last_login TIMESTAMP
+            )
+        ''')
     
     # 创建默认管理员账户（如果不存在）
     cursor.execute('SELECT * FROM users WHERE username = ?', ('admin',))
