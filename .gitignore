@@ -89,5 +89,27 @@ sentence_transformers_cache/
 # Distribution / packaging
 .Python
 build/
+
+# Documentation - ignore all md except specific ones
 *.md
-!README.md
+!README*.md
+!docs/**/*.md
+!backend/**/*.md
+
+# Cursor IDE
+.cursor/
+
+# Test results and temporary files
+*_results.json
+*_test_results.json
+TEST_REPORT.json
+COMPREHENSIVE_TEST_REPORT.json
+test_token.txt
+nul
+
+# Database and vector store data
+data/**/*.db
+data/**/*.sqlite
+data/**/*.sqlite3
+data/vector_db/
+backend/data/
