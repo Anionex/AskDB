@@ -108,8 +108,5 @@ test_token.txt
 nul
 
 # Database and vector store data
-data/**/*.db
-data/**/*.sqlite
-data/**/*.sqlite3
-data/vector_db/
+data/
 backend/data/
