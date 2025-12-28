@@ -79,6 +79,10 @@ EMAIL_CONFIG = {
     "company_name": "AskDB"
 }
 
+# 开发模式配置
+DEV_MODE = os.getenv("DEV_MODE", "true").lower() == "true"  # 开发模式，跳过验证码验证
+SKIP_EMAIL_VERIFICATION = DEV_MODE  # 开发模式下跳过邮箱验证
+
 # 验证码存储（仍然使用内存存储，因为验证码是短期的）
 verification_codes: Dict[str, Dict] = {}
 
@@ -887,6 +891,14 @@ async def send_verification_code_endpoint(request: SendCodeRequest, background_t
         "attempts": 0
     }
     
+    # 开发模式：在日志中打印验证码，不实际发送邮件
+    if SKIP_EMAIL_VERIFICATION:
+        logger.info(f"🔧 开发模式：邮箱 {request.email} 的验证码是: {code}")
+        return CodeResponse(
+            success=True, 
+            message=f"验证码: {code} （开发模式，任意验证码都可通过）"
+        )
+    
     # 后台发送邮件
     background_tasks.add_task(send_verification_code, request.email, code)
     
@@ -898,17 +910,22 @@ async def send_verification_code_endpoint(request: SendCodeRequest, background_t
 @app.post("/api/auth/verify-code", response_model=CodeResponse)
 async def verify_code_endpoint(request: VerifyCodeRequest):
     """验证验证码"""
+    # 开发模式：跳过验证码验证
+    if SKIP_EMAIL_VERIFICATION:
+        logger.info(f"🔧 开发模式：跳过邮箱 {request.email} 的验证码验证")
+        return CodeResponse(success=True, message="验证码正确（开发模式）")
+    
     if request.email not in verification_codes:
         return CodeResponse(success=False, message="验证码已过期或未发送")
     
     code_data = verification_codes[request.email]
     
     if datetime.now() > code_data["expires"]:
-        del verification_codes[request.email]
+        verification_codes.pop(request.email, None)
         return CodeResponse(success=False, message="验证码已过期")
     
     if code_data["attempts"] >= 3:
-        del verification_codes[request.email]
+        verification_codes.pop(request.email, None)
         return CodeResponse(success=False, message="验证失败次数过多，请重新获取验证码")
     
     if code_data["code"] != request.code:
@@ -916,7 +933,7 @@ async def verify_code_endpoint(request: VerifyCodeRequest):
         return CodeResponse(success=False, message="验证码错误")
     
     # 验证成功，删除验证码
-    del verification_codes[request.email]
+    verification_codes.pop(request.email, None)
     return CodeResponse(success=True, message="验证码正确")
 
 @app.post("/api/auth/register", response_model=RegisterResponse)
@@ -969,8 +986,8 @@ async def register_user(request: RegisterRequest):
         
         logger.info(f"新用户注册: {request.username} ({request.user_type})")
         
-        # 验证成功后删除验证码
-        del verification_codes[request.email]
+        # 验证成功后删除验证码（如果存在）
+        verification_codes.pop(request.email, None)
         
         return RegisterResponse(
             success=True,

@@ -4,7 +4,7 @@
 # 权限配置说明：
 # - table: 表名
 # - roles: 角色配置列表
-#   - role_pattern: 角色匹配模式（支持正则表达式）
+#   - user_type: 用户类型（manager/teacher/student）
 #   - allowed_operations: 允许的操作列表 ["SELECT", "INSERT", "UPDATE", "DELETE"]
 #   - allowed_columns: 允许访问的列（null表示所有列，[]表示没有列）
 #   - row_filter: 行级过滤条件（SQL WHERE子句，支持{username}占位符）
@@ -15,45 +15,45 @@ permissions:
   - table: students
     roles:
       # admin角色：完全权限
-      - role_pattern: "^admin$"
+      - user_type: "manager"
         allowed_operations: ["SELECT", "INSERT", "UPDATE", "DELETE"]
         allowed_columns: null  # null表示所有列
         row_filter: null       # null表示所有行
         forbidden_columns: []  # 无禁止列
       
-      # teach开头的用户：可以查看所有students，可以添加和修改，但不能删除
-      - role_pattern: "^teach.*"
+      # 教师：可以查看所有students，可以添加和修改，但不能删除
+      - user_type: "teacher"
         allowed_operations: ["SELECT", "INSERT", "UPDATE"]
         allowed_columns: null  # 所有列
         row_filter: null       # 所有行
         forbidden_columns: []  # 无禁止列
       
-      # stu开头的用户：只能查看和修改自己的信息，不能添加和删除
-      - role_pattern: "^stu.*"
+      # 学生：只能查看和修改自己的信息，不能添加和删除
+      - user_type: "student"
         allowed_operations: ["SELECT", "UPDATE"]
         allowed_columns: null  # 所有列
-        row_filter: "sid = '{username}'"  # 只能看到sid和用户名一致的记录
+        row_filter: "sid = {username}"  # 数字比较，不加引号
         forbidden_columns: []  # 无禁止列
   
   # teacher 表权限配置
   - table: teacher
     roles:
       # admin角色：完全权限
-      - role_pattern: "^admin$"
+      - user_type: "manager"
         allowed_operations: ["SELECT", "INSERT", "UPDATE", "DELETE"]
         allowed_columns: null
         row_filter: null
         forbidden_columns: []
       
-      # teach开头的用户：只能查看和修改自己的信息
-      - role_pattern: "^teach.*"
+      # 教师：只能查看和修改自己的信息
+      - user_type: "teacher"
         allowed_operations: ["SELECT", "UPDATE"]
         allowed_columns: null
-        row_filter: "tid = '{username}'"  # 只能看到tid和用户名一致的记录
+        row_filter: "tid = {username}"  # 数字比较，不加引号
         forbidden_columns: []
       
-      # stu开头的用户：完全不能访问teacher表
-      - role_pattern: "^stu.*"
+      # 学生：完全不能访问teacher表
+      - user_type: "student"
         allowed_operations: []  # 不允许任何操作
         allowed_columns: []     # 不允许访问任何列
         row_filter: "1=0"       # 永远返回空结果
@@ -63,24 +63,24 @@ permissions:
   - table: choices
     roles:
       # admin角色：完全权限
-      - role_pattern: "^admin$"
+      - user_type: "manager"
         allowed_operations: ["SELECT", "INSERT", "UPDATE", "DELETE"]
         allowed_columns: null
         row_filter: null
         forbidden_columns: []
       
-      # teach开头的用户：可以查看、添加和删除与他有关的选课记录
-      - role_pattern: "^teach.*"
+      # 教师：可以查看、添加和删除与他有关的选课记录
+      - user_type: "teacher"
         allowed_operations: ["SELECT", "INSERT", "DELETE"]
         allowed_columns: null
-        row_filter: "tid = '{username}'"  # 只能看到tid和用户名一致的记录
+        row_filter: "tid = {username}"  # 数字比较，不加引号
         forbidden_columns: []
       
-      # stu开头的用户：可以查看、添加和删除自己的选课记录
-      - role_pattern: "^stu.*"
+      # 学生：可以查看、添加和删除自己的选课记录
+      - user_type: "student"
         allowed_operations: ["SELECT", "INSERT", "DELETE"]
         allowed_columns: null
-        row_filter: "sid = '{username}'"  # 只能看到sid和用户名一致的记录
+        row_filter: "sid = {username}"  # 数字比较，不加引号
         forbidden_columns: []
 
 # 默认权限：当用户不匹配任何规则时应用

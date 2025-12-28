@@ -112,15 +112,16 @@ class DatabaseConnection:
         # 使用传入的用户上下文或当前用户上下文
         ctx = user_context or self._current_user_context
         
-        # 权限检查和SQL转换（只对SELECT查询）
+        # 权限检查和SQL转换
         original_sql = sql
         warnings = []
         if ctx and ctx.get('username'):
             try:
+                # 传递 user_type 用于权限判断
                 sql, warnings = self.permission_checker.check_and_transform_query(
                     sql, 
                     ctx.get('username'),
-                    ctx.get('user_type')
+                    user_type=ctx.get('user_type')
                 )
                 if warnings and self.permission_checker.config.log_checks:
                     logger.info(f"权限检查警告: {warnings}")

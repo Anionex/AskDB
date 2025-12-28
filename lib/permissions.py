@@ -84,13 +84,14 @@ class PermissionConfig:
         self.config = self._load_config()
         logger.info("权限配置已重新加载")
     
-    def get_table_permissions(self, table_name: str, username: str) -> Dict[str, Any]:
+    def get_table_permissions(self, table_name: str, username: str, user_type: Optional[str] = None) -> Dict[str, Any]:
         """
         获取用户对指定表的权限
         
         Args:
             table_name: 表名
             username: 用户名
+            user_type: 用户类型（manager/teacher/student）
             
         Returns:
             权限配置字典
@@ -100,8 +101,8 @@ class PermissionConfig:
             if table_perm["table"].lower() == table_name.lower():
                 # 查找匹配的角色
                 for role in table_perm.get("roles", []):
-                    role_pattern = role.get("role_pattern", "")
-                    if re.match(role_pattern, username):
+                    # 优先使用 user_type 匹配
+                    if user_type and role.get("user_type") == user_type:
                         permission = {
                             "allowed_operations": role.get("allowed_operations", ["SELECT"]),
                             "allowed_columns": role.get("allowed_columns"),
@@ -111,15 +112,39 @@ class PermissionConfig:
                         
                         # 替换占位符
                         if permission["row_filter"]:
+                            # 用户名就是纯数字ID（学号或工号）
                             permission["row_filter"] = permission["row_filter"].replace(
-                                "{username}", username
+                                "{username}", str(username)
                             )
                         
                         if self.log_checks:
                             logger.info(
-                                f"权限匹配: 用户={username}, 表={table_name}, "
-                                f"角色模式={role_pattern}, 允许操作={permission['allowed_operations']}, "
+                                f"权限匹配: 用户={username}, 用户类型={user_type}, 表={table_name}, "
+                                f"允许操作={permission['allowed_operations']}, "
                                 f"行过滤={permission['row_filter']}"
+                            )
+                        
+                        return permission
+                    
+                    # 向后兼容：支持旧的 role_pattern 方式
+                    role_pattern = role.get("role_pattern")
+                    if role_pattern and re.match(role_pattern, username):
+                        permission = {
+                            "allowed_operations": role.get("allowed_operations", ["SELECT"]),
+                            "allowed_columns": role.get("allowed_columns"),
+                            "row_filter": role.get("row_filter"),
+                            "forbidden_columns": role.get("forbidden_columns", [])
+                        }
+                        
+                        if permission["row_filter"]:
+                            permission["row_filter"] = permission["row_filter"].replace(
+                                "{username}", str(username)
+                            )
+                        
+                        if self.log_checks:
+                            logger.info(
+                                f"权限匹配(旧模式): 用户={username}, 表={table_name}, "
+                                f"角色模式={role_pattern}"
                             )
                         
                         return permission
@@ -128,7 +153,7 @@ class PermissionConfig:
         default_perm = self.config.get("default_permission", {})
         if self.log_checks:
             logger.warning(
-                f"未找到权限配置，使用默认权限: 用户={username}, 表={table_name}"
+                f"未找到权限配置，使用默认权限: 用户={username}, 用户类型={user_type}, 表={table_name}"
             )
         return default_perm
 
@@ -185,16 +210,16 @@ class PermissionChecker:
             return sql, []
         
         # 检查操作权限（增删查改）
-        self._check_operation_permission(sql_type, tables, username)
+        self._check_operation_permission(sql_type, tables, username, user_type)
         
         # 对于SELECT查询，应用行级过滤
         if sql_type == 'SELECT':
-            transformed_sql, warnings = self._transform_query(sql, tables, username)
+            transformed_sql, warnings = self._transform_query(sql, tables, username, user_type)
             return transformed_sql, warnings
         else:
             # 对于非SELECT查询（INSERT/UPDATE/DELETE），也需要应用行级过滤
             if sql_type in ['UPDATE', 'DELETE']:
-                transformed_sql, warnings = self._transform_query(sql, tables, username)
+                transformed_sql, warnings = self._transform_query(sql, tables, username, user_type)
                 return transformed_sql, warnings
             else:
                 # INSERT 操作不需要行级过滤
@@ -206,7 +231,8 @@ class PermissionChecker:
         self,
         operation: str,
         tables: List[str],
-        username: str
+        username: str,
+        user_type: Optional[str] = None
     ):
         """
         检查用户是否有权限执行指定操作
@@ -220,7 +246,7 @@ class PermissionChecker:
             PermissionDeniedException: 当用户没有权限时
         """
         for table in tables:
-            perm = self.config.get_table_permissions(table, username)
+            perm = self.config.get_table_permissions(table, username, user_type)
             allowed_ops = perm.get("allowed_operations", [])
             
             # 检查是否允许该操作
@@ -332,7 +358,8 @@ class PermissionChecker:
         self, 
         sql: str, 
         tables: List[str], 
-        username: str
+        username: str,
+        user_type: Optional[str] = None
     ) -> Tuple[str, List[str]]:
         """
         转换查询以应用权限控制
@@ -350,7 +377,7 @@ class PermissionChecker:
         # 获取所有表的权限
         table_permissions = {}
         for table in tables:
-            perm = self.config.get_table_permissions(table, username)
+            perm = self.config.get_table_permissions(table, username, user_type)
             table_permissions[table] = perm
             
             # 检查是否完全禁止访问

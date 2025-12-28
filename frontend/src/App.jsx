@@ -164,14 +164,57 @@ function App() {
                 size="large"
               >
                 <Form.Item
-                  name="username"
-                  rules={[
-                    { required: true, message: '请输入用户名' },
-                    { min: 3, max: 20, message: '用户名长度必须在3-20字符之间' },
-                    { pattern: /^[a-zA-Z0-9_]+$/, message: '用户名只能包含字母、数字和下划线' }
-                  ]}
+                  label="用户类型"
+                  name="userType"
+                  initialValue="student"
+                  rules={[{ required: true, message: '请选择用户类型' }]}
                 >
-                  <Input prefix={<UserOutlined />} placeholder="3-20位字母、数字、下划线" />
+                  <Select>
+                    <Select.Option value="student">
+                      <Space>
+                        <UserOutlined />
+                        <span>学生</span>
+                      </Space>
+                    </Select.Option>
+                    <Select.Option value="teacher">
+                      <Space>
+                        <UserSwitchOutlined />
+                        <span>教师</span>
+                      </Space>
+                    </Select.Option>
+                    <Select.Option value="manager">
+                      <Space>
+                        <CrownOutlined />
+                        <span>管理员</span>
+                      </Space>
+                    </Select.Option>
+                  </Select>
+                </Form.Item>
+                <Form.Item
+                  name="username"
+                  label="学号/工号"
+                  rules={[
+                    { required: true, message: '请输入学号或工号' },
+                    { pattern: /^\d+$/, message: '学号/工号必须为纯数字' }
+                  ]}
+                  tooltip={
+                    registerForm.getFieldValue('userType') === 'student' 
+                      ? '请输入学号（纯数字，如：20230101）' 
+                      : registerForm.getFieldValue('userType') === 'teacher'
+                      ? '请输入工号（纯数字，如：1001）'
+                      : '请输入用户名'
+                  }
+                >
+                  <Input 
+                    prefix={<UserOutlined />} 
+                    placeholder={
+                      registerForm.getFieldValue('userType') === 'student' 
+                        ? '学号（如：20230101）' 
+                        : registerForm.getFieldValue('userType') === 'teacher'
+                        ? '工号（如：1001）'
+                        : 'admin'
+                    }
+                  />
                 </Form.Item>
                 <Form.Item
                   name="email"
@@ -199,25 +242,6 @@ function App() {
                   rules={[{ required: true, message: '请输入验证码' }]}
                 >
                   <Input placeholder="请输入6位验证码" maxLength={6} />
-                </Form.Item>
-                <Form.Item
-                  name="userType"
-                  initialValue="user"
-                >
-                  <Select>
-                    <Select.Option value="user">
-                      <Space>
-                        <UserOutlined />
-                        <span>普通员工</span>
-                      </Space>
-                    </Select.Option>
-                    <Select.Option value="manager">
-                      <Space>
-                        <CrownOutlined />
-                        <span>管理员</span>
-                      </Space>
-                    </Select.Option>
-                  </Select>
                 </Form.Item>
                 <Form.Item
                   name="password"
