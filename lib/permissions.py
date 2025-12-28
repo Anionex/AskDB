@@ -436,15 +436,25 @@ class PermissionChecker:
             # 找到WHERE后的位置
             where_end = where_pos + 7  # len(' WHERE ')
             
-            # 查找是否有ORDER BY, GROUP BY, HAVING, LIMIT等子句
-            # 这些子句应该在WHERE条件之后
-            order_pos = sql_upper.find(' ORDER BY', where_end)
-            group_pos = sql_upper.find(' GROUP BY', where_end)
-            having_pos = sql_upper.find(' HAVING', where_end)
-            limit_pos = sql_upper.find(' LIMIT', where_end)
+            # 使用正则表达式查找ORDER BY, GROUP BY, HAVING, LIMIT等子句
+            # 支持换行和大小写不敏感
+            # 在WHERE之后查找各种子句
+            patterns = [
+                r'\s+ORDER\s+BY\s+',
+                r'\s+GROUP\s+BY\s+',
+                r'\s+HAVING\s+',
+                r'\s+LIMIT\s+',
+                r'\s+UNION\s+',
+            ]
             
-            # 找到最早出现的子句位置
-            end_positions = [p for p in [order_pos, group_pos, having_pos, limit_pos] if p != -1]
+            end_positions = []
+            # 只在WHERE之后的部分中查找
+            sql_after_where = sql[where_end:]
+            for pattern in patterns:
+                match = re.search(pattern, sql_after_where, re.IGNORECASE)
+                if match:
+                    # 转换为在整个SQL中的位置
+                    end_positions.append(where_end + match.start())
             
             if end_positions:
                 # 在WHERE和下一个子句之间插入条件
@@ -456,29 +466,48 @@ class PermissionChecker:
                     sql[insert_pos:]
                 )
             else:
-                # WHERE子句后面没有其他子句
+                # WHERE子句后面没有其他子句，需要处理末尾的分号
                 existing_condition = sql[where_end:].strip()
-                new_sql = sql[:where_end] + f" ({existing_condition}) AND {combined_filter}"
+                # 如果末尾有分号，在分号之前添加AND条件
+                if existing_condition.endswith(';'):
+                    condition_without_semicolon = existing_condition[:-1].rstrip()
+                    new_sql = sql[:where_end] + f" ({condition_without_semicolon}) AND {combined_filter};"
+                else:
+                    new_sql = sql[:where_end] + f" ({existing_condition}) AND {combined_filter}"
             
             return new_sql
         else:
             # 没有WHERE子句，需要添加
             # 查找合适的插入位置（在FROM子句之后，ORDER BY等之前）
-            order_pos = sql_upper.find(' ORDER BY')
-            group_pos = sql_upper.find(' GROUP BY')
-            having_pos = sql_upper.find(' HAVING')
-            limit_pos = sql_upper.find(' LIMIT')
-            union_pos = sql_upper.find(' UNION')
+            # 使用正则表达式查找，支持换行和大小写不敏感
+            # 查找各种子句的位置（支持换行，在原始SQL上查找）
+            patterns = [
+                r'\s+ORDER\s+BY\s+',
+                r'\s+GROUP\s+BY\s+',
+                r'\s+HAVING\s+',
+                r'\s+LIMIT\s+',
+                r'\s+UNION\s+',
+            ]
             
-            # 找到最早出现的子句位置
-            end_positions = [p for p in [order_pos, group_pos, having_pos, limit_pos, union_pos] if p != -1]
+            end_positions = []
+            for pattern in patterns:
+                match = re.search(pattern, sql, re.IGNORECASE)
+                if match:
+                    end_positions.append(match.start())
             
             if end_positions:
+                # 找到最早出现的子句位置
                 insert_pos = min(end_positions)
-                new_sql = sql[:insert_pos] + f" WHERE {combined_filter} " + sql[insert_pos:]
+                # 在找到的关键字之前插入WHERE
+                new_sql = sql[:insert_pos].rstrip() + f" WHERE {combined_filter} " + sql[insert_pos:].lstrip()
             else:
-                # 没有其他子句，直接在末尾添加WHERE
-                new_sql = sql.rstrip() + f" WHERE {combined_filter}"
+                # 没有其他子句，需要处理末尾的分号
+                sql_clean = sql.rstrip()
+                # 如果末尾有分号，在分号之前插入WHERE
+                if sql_clean.endswith(';'):
+                    new_sql = sql_clean[:-1].rstrip() + f" WHERE {combined_filter};"
+                else:
+                    new_sql = sql_clean + f" WHERE {combined_filter}"
             
             return new_sql
     
