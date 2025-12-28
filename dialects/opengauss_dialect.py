@@ -63,9 +63,9 @@ def register_dialect():  # ✅ 正确的函数名
         # 注册方言
         registry.register("opengauss", __name__, "OpenGaussDialect")
         registry.register("opengauss.psycopg2", __name__, "OpenGaussDialect")
-        print("✅ openGauss dialect registered successfully")
+        print("openGauss dialect registered successfully")
     except Exception as e:
-        print(f"❌ Failed to register openGauss dialect: {e}")
+        print(f"Failed to register openGauss dialect: {e}")
 
 # 自动注册
 register_dialect()  # ✅ 正确的函数调用
