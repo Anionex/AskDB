@@ -923,22 +923,22 @@ async def verify_code_endpoint(request: VerifyCodeRequest):
 async def register_user(request: RegisterRequest):
     """用户注册"""
     # 检查验证码
-    if request.email not in verification_codes:
-        return RegisterResponse(success=False, message="请先获取验证码")
+    # if request.email not in verification_codes:
+    #     return RegisterResponse(success=False, message="请先获取验证码")
     
-    code_data = verification_codes[request.email]
+    # code_data = verification_codes[request.email]
     
-    if datetime.now() > code_data["expires"]:
-        del verification_codes[request.email]
-        return RegisterResponse(success=False, message="验证码已过期")
+    # if datetime.now() > code_data["expires"]:
+    #     del verification_codes[request.email]
+    #     return RegisterResponse(success=False, message="验证码已过期")
     
-    if code_data["attempts"] >= 3:
-        del verification_codes[request.email]
-        return RegisterResponse(success=False, message="验证失败次数过多，请重新获取验证码")
+    # if code_data["attempts"] >= 3:
+    #     del verification_codes[request.email]
+    #     return RegisterResponse(success=False, message="验证失败次数过多，请重新获取验证码")
     
-    if code_data["code"] != request.verification_code:
-        code_data["attempts"] += 1
-        return RegisterResponse(success=False, message="验证码错误")
+    # if code_data["code"] != request.verification_code:
+    #     code_data["attempts"] += 1
+    #     return RegisterResponse(success=False, message="验证码错误")
     
     # 检查用户名是否已存在
     conn = get_db_connection()
