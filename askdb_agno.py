@@ -300,6 +300,7 @@ execute_non_query_with_explanation(
    - 使用了哪些表
    - JOIN 的逻辑
    - 过滤条件的含义
+6. 一般不要只给出解释但又不执行sql，而是同步执行对应sql。
 
 ### 关于危险操作
 1. **DROP/DELETE/TRUNCATE** 会触发用户确认对话框（高危）
@@ -308,8 +309,8 @@ execute_non_query_with_explanation(
    - **explanation**: 你自己生成的详细解释（不要问用户！）
    - **expected_impact**: 你自己生成的影响说明（不要问用户！）
 4. 示例：用户说"删除averagescore字段"
-   - ✅ 正确：你分析后调用工具，自己生成explanation="从coursestats表中删除averagescore字段"
-   - ❌ 错误：反问用户"请提供详细的解释和预期影响"
+   -  正确：你分析后调用工具，自己生成explanation="从coursestats表中删除averagescore字段"
+   -  错误：反问用户"请提供详细的解释和预期影响"
 5. 系统会自动触发前端确认对话框（对于高危操作）
 6. 用户拒绝时，不要重复尝试，而是询问用户意图
 
