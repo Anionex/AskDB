@@ -277,17 +277,31 @@ class EnhancedDatabaseTools(Toolkit):
             包含确认请求信息的 JSON
         """
         try:
-            if not explanation or len(explanation.strip()) < 15:
-                return json.dumps({
-                    "success": False,
-                    "error": "必须提供详细的操作解释（至少15个字符）"
-                }, ensure_ascii=False, indent=2)
+            # 参数验证：如果缺少解释，使用默认值而不是返回错误
+            if not explanation or len(explanation.strip()) < 5:
+                explanation = f"执行SQL操作: {sql_statement[:50]}..."
+                logger.warning("缺少详细解释，使用默认值")
             
-            if not expected_impact or len(expected_impact.strip()) < 10:
-                return json.dumps({
-                    "success": False,
-                    "error": "必须提供预期影响说明（至少10个字符）"
-                }, ensure_ascii=False, indent=2)
+            if not expected_impact or len(expected_impact.strip()) < 5:
+                # 尝试从SQL推断影响
+                sql_upper = sql_statement.upper()
+                if 'DROP' in sql_upper:
+                    expected_impact = "将删除表及其所有数据"
+                elif 'DELETE' in sql_upper:
+                    expected_impact = "将删除符合条件的数据行"
+                elif 'TRUNCATE' in sql_upper:
+                    expected_impact = "将清空表中的所有数据"
+                elif 'UPDATE' in sql_upper:
+                    expected_impact = "将更新符合条件的数据行"
+                elif 'INSERT' in sql_upper:
+                    expected_impact = "将插入新的数据行"
+                elif 'CREATE' in sql_upper:
+                    expected_impact = "将创建新的数据库对象"
+                elif 'ALTER' in sql_upper:
+                    expected_impact = "将修改表结构"
+                else:
+                    expected_impact = "将执行数据库修改操作"
+                logger.warning(f"缺少影响说明，自动生成: {expected_impact}")
             
             # 🔒 先进行权限检查
             # 创建一个测试查询来检查权限（不实际执行）
