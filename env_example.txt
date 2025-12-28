@@ -1,9 +1,22 @@
 # ====================
-# Gemini API Configuration
+# LLM API Configuration
 # ====================
+
+# Choose your LLM provider: gemini or openai
+LLM_PROVIDER=gemini
+
+# Gemini API Configuration
 # Get your API key from: https://makersuite.google.com/app/apikey
 GEMINI_API_KEY=your_gemini_api_key_here
 GEMINI_MODEL=gemini-2.0-flash-exp
+
+# OpenAI API Configuration
+# Get your API key from: https://platform.openai.com/api-keys
+OPENAI_API_KEY=your_openai_api_key_here
+OPENAI_MODEL=gpt-4o-mini
+# Optional: Set custom base URL for OpenAI-compatible APIs (e.g., Azure, local deployments)
+# Leave empty to use default OpenAI API endpoint
+OPENAI_BASE_URL=
 
 # ====================
 # Database Configuration
