@@ -137,7 +137,7 @@ export const ChatArea = () => {
                   maxWidth: '70%',
                   background: message.type === 'user' ? '#1890ff' : '#f0f0f0',
                   color: message.type === 'user' ? '#fff' : '#000',
-                  padding: '12px 16px',
+                  padding: message.type === 'user' ? '12px 16px' : '16px 20px 12px 36px',
                   borderRadius: '8px',
                   wordBreak: 'break-word'
                 }}
