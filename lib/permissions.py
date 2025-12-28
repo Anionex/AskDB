@@ -66,6 +66,7 @@ class PermissionConfig:
         return {
             "permissions": [],
             "default_permission": {
+                "allowed_operations": [],
                 "allowed_columns": [],
                 "row_filter": "1=0",
                 "forbidden_columns": None
@@ -102,6 +103,7 @@ class PermissionConfig:
                     role_pattern = role.get("role_pattern", "")
                     if re.match(role_pattern, username):
                         permission = {
+                            "allowed_operations": role.get("allowed_operations", ["SELECT"]),
                             "allowed_columns": role.get("allowed_columns"),
                             "row_filter": role.get("row_filter"),
                             "forbidden_columns": role.get("forbidden_columns", [])
@@ -116,7 +118,8 @@ class PermissionConfig:
                         if self.log_checks:
                             logger.info(
                                 f"权限匹配: 用户={username}, 表={table_name}, "
-                                f"角色模式={role_pattern}, 行过滤={permission['row_filter']}"
+                                f"角色模式={role_pattern}, 允许操作={permission['allowed_operations']}, "
+                                f"行过滤={permission['row_filter']}"
                             )
                         
                         return permission
@@ -175,42 +178,143 @@ class PermissionChecker:
         # 检查SQL类型
         sql_type = statement.get_type()
         
-        # 只处理SELECT查询的权限控制
-        if sql_type != 'SELECT':
-            # 对于非SELECT查询，可以在这里添加额外的权限检查
-            if self.config.log_checks:
-                logger.info(f"非SELECT查询，跳过行级权限控制: {sql_type}")
-            return sql, []
-        
         # 提取表名
         tables = self._extract_tables(statement)
         
         if not tables:
             return sql, []
         
-        # 转换查询
-        transformed_sql, warnings = self._transform_query(sql, tables, username)
+        # 检查操作权限（增删查改）
+        self._check_operation_permission(sql_type, tables, username)
         
-        return transformed_sql, warnings
+        # 对于SELECT查询，应用行级过滤
+        if sql_type == 'SELECT':
+            transformed_sql, warnings = self._transform_query(sql, tables, username)
+            return transformed_sql, warnings
+        else:
+            # 对于非SELECT查询（INSERT/UPDATE/DELETE），也需要应用行级过滤
+            if sql_type in ['UPDATE', 'DELETE']:
+                transformed_sql, warnings = self._transform_query(sql, tables, username)
+                return transformed_sql, warnings
+            else:
+                # INSERT 操作不需要行级过滤
+                if self.config.log_checks:
+                    logger.info(f"{sql_type}操作，无需行级过滤")
+                return sql, []
+    
+    def _check_operation_permission(
+        self,
+        operation: str,
+        tables: List[str],
+        username: str
+    ):
+        """
+        检查用户是否有权限执行指定操作
+        
+        Args:
+            operation: SQL操作类型 (SELECT, INSERT, UPDATE, DELETE)
+            tables: 涉及的表名列表
+            username: 用户名
+            
+        Raises:
+            PermissionDeniedException: 当用户没有权限时
+        """
+        for table in tables:
+            perm = self.config.get_table_permissions(table, username)
+            allowed_ops = perm.get("allowed_operations", [])
+            
+            # 检查是否允许该操作
+            if operation not in allowed_ops:
+                error_msg = f"您没有权限对表 '{table}' 执行 {operation} 操作"
+                
+                if self.config.log_checks:
+                    logger.warning(
+                        f"操作权限拒绝: 用户={username}, 表={table}, "
+                        f"操作={operation}, 允许的操作={allowed_ops}"
+                    )
+                
+                raise PermissionDeniedException(error_msg)
+        
+        if self.config.log_checks:
+            logger.info(
+                f"操作权限检查通过: 用户={username}, 操作={operation}, "
+                f"表={tables}"
+            )
     
     def _extract_tables(self, statement) -> List[str]:
-        """从SQL语句中提取表名"""
+        """从SQL语句中提取表名（支持SELECT/INSERT/UPDATE/DELETE）"""
         tables = []
-        from_seen = False
+        sql_type = statement.get_type()
         
-        for token in statement.tokens:
-            if from_seen:
-                if isinstance(token, IdentifierList):
-                    for identifier in token.get_identifiers():
-                        tables.append(self._extract_table_name(identifier))
-                elif isinstance(token, Identifier):
-                    tables.append(self._extract_table_name(token))
-                elif token.ttype is Keyword:
-                    # 遇到其他关键字，停止提取
-                    break
-            
-            if token.ttype is Keyword and token.value.upper() == 'FROM':
-                from_seen = True
+        if sql_type == 'SELECT':
+            # SELECT: 从 FROM 子句提取
+            from_seen = False
+            for token in statement.tokens:
+                if from_seen:
+                    if isinstance(token, IdentifierList):
+                        for identifier in token.get_identifiers():
+                            tables.append(self._extract_table_name(identifier))
+                    elif isinstance(token, Identifier):
+                        tables.append(self._extract_table_name(token))
+                    elif token.ttype is Keyword:
+                        break
+                
+                if token.ttype is Keyword and token.value.upper() == 'FROM':
+                    from_seen = True
+        
+        elif sql_type == 'INSERT':
+            # INSERT INTO table_name ...
+            insert_seen = False
+            into_seen = False
+            for token in statement.tokens:
+                if insert_seen and into_seen:
+                    if isinstance(token, Identifier):
+                        tables.append(self._extract_table_name(token))
+                        break
+                    elif token.ttype is not Keyword and str(token).strip():
+                        # 简单表名（不是Identifier对象）
+                        table_name = str(token).strip().split()[0]
+                        tables.append(table_name.strip('('))
+                        break
+                
+                if token.ttype is DML and token.value.upper() == 'INSERT':
+                    insert_seen = True
+                elif token.ttype is Keyword and token.value.upper() == 'INTO':
+                    into_seen = True
+        
+        elif sql_type == 'UPDATE':
+            # UPDATE table_name SET ...
+            update_seen = False
+            for token in statement.tokens:
+                if update_seen:
+                    if isinstance(token, Identifier):
+                        tables.append(self._extract_table_name(token))
+                        break
+                    elif token.ttype is not Keyword and str(token).strip():
+                        # 简单表名
+                        table_name = str(token).strip().split()[0]
+                        tables.append(table_name)
+                        break
+                
+                if token.ttype is DML and token.value.upper() == 'UPDATE':
+                    update_seen = True
+        
+        elif sql_type == 'DELETE':
+            # DELETE FROM table_name ...
+            from_seen = False
+            for token in statement.tokens:
+                if from_seen:
+                    if isinstance(token, Identifier):
+                        tables.append(self._extract_table_name(token))
+                        break
+                    elif token.ttype is not Keyword and str(token).strip():
+                        # 简单表名
+                        table_name = str(token).strip().split()[0]
+                        tables.append(table_name)
+                        break
+                
+                if token.ttype is Keyword and token.value.upper() == 'FROM':
+                    from_seen = True
         
         return tables
     
