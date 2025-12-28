@@ -2,8 +2,7 @@ import React from 'react'
 import { Collapse, Tag, Typography, Space } from 'antd'
 import { ToolOutlined, ApiOutlined } from '@ant-design/icons'
 
-const { Panel } = Collapse
-const { Text, Paragraph } = Typography
+const { Text } = Typography
 
 export const ToolCallsDisplay = ({ toolCalls }) => {
   if (!toolCalls || toolCalls.length === 0) {
@@ -55,71 +54,76 @@ export const ToolCallsDisplay = ({ toolCalls }) => {
     return String(args)
   }
 
+  // 使用 Antd 5+ 的 items 配置方式
+  const collapseItems = [
+    {
+      key: '1',
+      label: (
+        <Space>
+          <ToolOutlined style={{ color: '#1890ff' }} />
+          <Text style={{ fontSize: '12px', color: '#1890ff' }}>
+            调用了 {toolCalls.length} 个工具
+          </Text>
+        </Space>
+      ),
+      children: (
+        <div style={{ maxHeight: '400px', overflowY: 'auto' }}>
+          {toolCalls.map((call, index) => (
+            <div 
+              key={index}
+              style={{
+                marginBottom: index < toolCalls.length - 1 ? '16px' : 0,
+                padding: '12px',
+                background: '#fff',
+                borderRadius: '4px',
+                border: '1px solid #f0f0f0'
+              }}
+            >
+              <Space direction="vertical" style={{ width: '100%' }} size="small">
+                <div>
+                  <Tag icon={<ApiOutlined />} color="blue">
+                    工具 {index + 1}
+                  </Tag>
+                  <Text strong style={{ fontSize: '13px' }}>
+                    {getToolDisplayName(call.name)}
+                  </Text>
+                </div>
+                
+                {call.arguments && (
+                  <div style={{ 
+                    marginTop: '8px',
+                    padding: '8px',
+                    background: '#fafafa',
+                    borderRadius: '4px',
+                    fontSize: '12px'
+                  }}>
+                    <Text type="secondary" style={{ fontSize: '11px' }}>调用参数:</Text>
+                    <div style={{ marginTop: '6px' }}>
+                      {formatArguments(call.arguments)}
+                    </div>
+                  </div>
+                )}
+              </Space>
+            </div>
+          ))}
+        </div>
+      )
+    }
+  ]
+
   return (
     <div style={{ marginTop: '12px' }}>
       <Collapse 
         ghost 
         size="small"
         expandIconPosition="end"
+        items={collapseItems}
         style={{ 
           background: 'rgba(24, 144, 255, 0.05)',
           borderRadius: '4px',
           border: '1px solid rgba(24, 144, 255, 0.2)'
         }}
-      >
-        <Panel
-          header={
-            <Space>
-              <ToolOutlined style={{ color: '#1890ff' }} />
-              <Text style={{ fontSize: '12px', color: '#1890ff' }}>
-                调用了 {toolCalls.length} 个工具
-              </Text>
-            </Space>
-          }
-          key="1"
-        >
-          <div style={{ maxHeight: '400px', overflowY: 'auto' }}>
-            {toolCalls.map((call, index) => (
-              <div 
-                key={index}
-                style={{
-                  marginBottom: index < toolCalls.length - 1 ? '16px' : 0,
-                  padding: '12px',
-                  background: '#fff',
-                  borderRadius: '4px',
-                  border: '1px solid #f0f0f0'
-                }}
-              >
-                <Space direction="vertical" style={{ width: '100%' }} size="small">
-                  <div>
-                    <Tag icon={<ApiOutlined />} color="blue">
-                      工具 {index + 1}
-                    </Tag>
-                    <Text strong style={{ fontSize: '13px' }}>
-                      {getToolDisplayName(call.name)}
-                    </Text>
-                  </div>
-                  
-                  {call.arguments && (
-                    <div style={{ 
-                      marginTop: '8px',
-                      padding: '8px',
-                      background: '#fafafa',
-                      borderRadius: '4px',
-                      fontSize: '12px'
-                    }}>
-                      <Text type="secondary" style={{ fontSize: '11px' }}>调用参数:</Text>
-                      <div style={{ marginTop: '6px' }}>
-                        {formatArguments(call.arguments)}
-                      </div>
-                    </div>
-                  )}
-                </Space>
-              </div>
-            ))}
-          </div>
-        </Panel>
-      </Collapse>
+      />
     </div>
   )
 }
