@@ -501,7 +501,8 @@ def process_chat_message(message: str, session_id: str = "web-session", user_con
             
             # 如果是第一条消息，自动生成标题
             stats = conversation_db.get_conversation_stats(session_id)
-            if stats['user_messages'] == 1:
+            user_messages = stats.get('user_messages') or 0
+            if user_messages == 1:
                 conversation_db.auto_generate_title(session_id)
         
         return {
@@ -549,6 +550,15 @@ async def process_chat_message_stream(message: str, session_id: str, user_contex
                     role='user',
                     content=message
                 )
+                # 检查是否是第一条消息，如果是则立即更新标题
+                stats = conversation_db.get_conversation_stats(session_id)
+                user_messages = stats.get('user_messages') or 0
+                if user_messages == 1:
+                    # 检查当前标题是否为"新对话"，如果是则更新为第一条消息
+                    conversation = conversation_db.get_conversation(session_id, user_context.get('username'))
+                    if conversation and conversation.get('title') == '新对话':
+                        logger.info(f"🔄 检测到第一条消息，更新会话标题: {session_id}")
+                        conversation_db.auto_generate_title(session_id)
             except ValueError:
                 logger.warning(f"会话不存在，自动创建: {session_id}")
                 conversation_db.create_conversation(
@@ -562,6 +572,9 @@ async def process_chat_message_stream(message: str, session_id: str, user_contex
                     role='user',
                     content=message
                 )
+                # 新创建的会话，立即更新标题
+                logger.info(f"🔄 新会话创建，更新标题: {session_id}")
+                conversation_db.auto_generate_title(session_id)
         
         from backend.agents import agent_manager
         from agno.agent import RunEvent
@@ -575,6 +588,7 @@ async def process_chat_message_stream(message: str, session_id: str, user_contex
         # 用于收集完整响应和工具调用信息
         full_response = []
         tool_calls_info = []
+        current_content_length = 0  # 记录当前内容长度
         
         logger.info(f"开始处理流式事件，stream_events=True")
         
@@ -590,6 +604,7 @@ async def process_chat_message_stream(message: str, session_id: str, user_contex
                 content = chunk.content
                 if content:
                     full_response.append(content)
+                    current_content_length += len(content)  # 更新长度
                     # 实时发送内容块
                     yield f"data: {json.dumps({'type': 'content', 'content': content}, ensure_ascii=False)}\n\n"
                     await asyncio.sleep(0.001)  # 微小延迟以避免过载
@@ -619,11 +634,13 @@ async def process_chat_message_stream(message: str, session_id: str, user_contex
                 yield f"data: {json.dumps({'type': 'tool_call_start', 'data': tool_call_data}, ensure_ascii=False)}\n\n"
                 await asyncio.sleep(0.001)
                 
-                # 记录工具调用信息
+                # 记录工具调用信息（包含位置）
                 tool_calls_info.append({
                     'name': tool_name,
                     'arguments': tool_args,
-                    'result': None
+                    'result': None,
+                    'insertPosition': current_content_length,  # 记录插入位置
+                    'status': 'started'
                 })
             
             # 处理工具调用完成事件
@@ -635,10 +652,12 @@ async def process_chat_message_stream(message: str, session_id: str, user_contex
                 yield f"data: {json.dumps({'type': 'tool_call_result', 'data': {'name': tool_name, 'result': tool_result}}, ensure_ascii=False)}\n\n"
                 await asyncio.sleep(0.001)
                 
-                # 更新工具调用信息中的结果
+                # 更新工具调用信息中的结果和完成位置
                 for tc in tool_calls_info:
                     if tc['name'] == tool_name and tc['result'] is None:
                         tc['result'] = tool_result
+                        tc['completedPosition'] = current_content_length  # 记录完成位置
+                        tc['status'] = 'completed'
                         break
         
         # 组装完整响应
@@ -657,10 +676,61 @@ async def process_chat_message_stream(message: str, session_id: str, user_contex
                 metadata=metadata if metadata else None
             )
             
-            # 如果是第一条消息，自动生成标题
+            # 备用检查：如果是第一条消息且标题还是"新对话"，则更新标题
+            # （主要检查已在保存用户消息后完成，这里作为备用）
             stats = conversation_db.get_conversation_stats(session_id)
-            if stats['user_messages'] == 1:
-                conversation_db.auto_generate_title(session_id)
+            user_messages = stats.get('user_messages') or 0
+            if user_messages == 1:
+                conversation = conversation_db.get_conversation(session_id, user_context.get('username') if user_context else None)
+                if conversation and conversation.get('title') == '新对话':
+                    logger.info(f"🔄 [备用检查] 检测到第一条消息，更新会话标题: {session_id}")
+                    conversation_db.auto_generate_title(session_id)
+        
+        # 🎯 生成智能推荐（在主回复完成后）
+        try:
+            from backend.query_recommender import query_recommender
+            
+            logger.info("🎯 开始生成推荐查询...")
+            
+            # 检查推荐器是否可用
+            if not query_recommender.client:
+                logger.warning("⚠️ 推荐器未初始化（可能缺少API key），跳过推荐")
+            else:
+                # 获取对话历史（用于更好的推荐）
+                conversation_history = []
+                if conversation_db:
+                    messages = conversation_db.get_conversation_messages(
+                        session_id, 
+                        username=user_context.get('username'),
+                        limit=10
+                    )
+                    # 转换为推荐器需要的格式
+                    conversation_history = [
+                        {"role": msg['role'], "content": msg['content']}
+                        for msg in messages[:-2]  # 排除刚刚添加的用户消息和AI回复
+                    ]
+                
+                logger.info(f"📝 对话历史: {len(conversation_history)} 条消息")
+                logger.info(f"📝 当前查询: {message[:50]}...")
+                logger.info(f"📝 AI回答长度: {len(ai_response)} 字符")
+                
+                # 生成推荐
+                recommendations = query_recommender.generate_recommendations(
+                    current_query=message,
+                    current_answer=ai_response,
+                    conversation_history=conversation_history,
+                    max_recommendations=3
+                )
+                
+                if recommendations and len(recommendations) > 0:
+                    logger.info(f"✅ 生成了 {len(recommendations)} 条推荐查询: {recommendations}")
+                    # 发送推荐事件
+                    yield f"data: {json.dumps({'type': 'recommendations', 'data': recommendations}, ensure_ascii=False)}\n\n"
+                else:
+                    logger.warning("⚠️ 推荐器返回空列表，未生成推荐查询")
+                    
+        except Exception as e:
+            logger.error(f"❌ 生成推荐失败（不影响主功能）: {e}", exc_info=True)
         
         # 发送完成事件
         yield f"data: {json.dumps({'type': 'done'}, ensure_ascii=False)}\n\n"

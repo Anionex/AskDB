@@ -1,9 +1,12 @@
 import { create } from 'zustand'
+import { persist } from 'zustand/middleware'
 import axios from 'axios'
 
 const API_BASE = 'http://localhost:8000/api'
 
-export const useChatStore = create((set, get) => ({
+export const useChatStore = create(
+  persist(
+    (set, get) => ({
   // 会话列表
   sessions: [],
   currentSessionId: null,
@@ -21,6 +24,9 @@ export const useChatStore = create((set, get) => ({
   
   // 会话加载状态
   sessionsLoaded: false,
+  
+  // 推荐查询
+  recommendations: [],
 
   // 获取会话列表
   fetchSessions: async () => {
@@ -67,7 +73,8 @@ export const useChatStore = create((set, get) => ({
         // 切换到新会话
         set({ 
           currentSessionId: sessionId,
-          messages: { ...get().messages, [sessionId]: [] }
+          messages: { ...get().messages, [sessionId]: [] },
+          recommendations: []  // 清空推荐
         })
         
         return sessionId
@@ -81,7 +88,10 @@ export const useChatStore = create((set, get) => ({
 
   // 切换会话
   switchSession: async (sessionId) => {
-    set({ currentSessionId: sessionId })
+    set({ 
+      currentSessionId: sessionId,
+      recommendations: []  // 清空推荐
+    })
     // 如果该会话没有消息缓存或消息为空，加载历史
     const cachedMessages = get().messages[sessionId]
     if (!cachedMessages || cachedMessages.length === 0) {
@@ -101,19 +111,73 @@ export const useChatStore = create((set, get) => ({
       )
       
       if (response.data.success) {
-        set(state => ({
-          messages: { 
-            ...state.messages, 
-            [sessionId]: response.data.messages || [] 
+        const historyMessages = response.data.messages || []
+        
+        // 获取当前本地消息
+        const localMessages = get().messages[sessionId] || []
+        
+        // 如果本地已经有消息，进行智能合并而不是直接替换
+        // 这样可以避免流式消息和数据库消息重复
+        if (localMessages.length > 0) {
+          console.log('🔄 合并本地消息和历史消息', {
+            local: localMessages.length,
+            history: historyMessages.length
+          })
+          
+          // 创建消息指纹函数（用于判断消息是否重复）
+          const getMessageFingerprint = (msg) => {
+            // 使用角色、内容前100字符和时间戳（精确到秒）来生成指纹
+            const contentPrefix = (msg.content || '').substring(0, 100)
+            const timestamp = new Date(msg.timestamp).getTime()
+            // 时间戳精确到秒（避免毫秒级差异）
+            const timestampSecond = Math.floor(timestamp / 1000)
+            return `${msg.type}-${contentPrefix}-${timestampSecond}`
           }
-        }))
+          
+          // 使用 Set 记录已存在的消息指纹
+          const existingFingerprints = new Set(
+            localMessages.map(msg => getMessageFingerprint(msg))
+          )
+          
+          // 过滤掉已存在的历史消息
+          const newMessages = historyMessages.filter(msg => {
+            const fingerprint = getMessageFingerprint(msg)
+            return !existingFingerprints.has(fingerprint)
+          })
+          
+          console.log(`📝 去重结果: 本地${localMessages.length}条, 历史${historyMessages.length}条, 新增${newMessages.length}条`)
+          
+          // 合并消息并按时间戳排序
+          const mergedMessages = [...localMessages, ...newMessages].sort(
+            (a, b) => new Date(a.timestamp) - new Date(b.timestamp)
+          )
+          
+          set(state => ({
+            messages: { 
+              ...state.messages, 
+              [sessionId]: mergedMessages
+            }
+          }))
+        } else {
+          // 如果本地没有消息，直接使用历史消息
+          console.log('📥 直接加载历史消息:', historyMessages.length, '条')
+          set(state => ({
+            messages: { 
+              ...state.messages, 
+              [sessionId]: historyMessages
+            }
+          }))
+        }
       }
     } catch (error) {
       console.error('加载会话历史失败:', error)
-      // 如果加载失败，初始化为空数组
-      set(state => ({
-        messages: { ...state.messages, [sessionId]: [] }
-      }))
+      // 如果加载失败，保留本地消息
+      const localMessages = get().messages[sessionId] || []
+      if (localMessages.length === 0) {
+        set(state => ({
+          messages: { ...state.messages, [sessionId]: [] }
+        }))
+      }
     }
   },
 
@@ -265,17 +329,12 @@ export const useChatStore = create((set, get) => ({
       timestamp: new Date().toISOString()
     })
 
-    // 添加一个空的 AI 消息，用于流式更新
-    const aiMessageId = Date.now() + 1
-    get().addMessage({
-      id: aiMessageId,
-      type: 'assistant',
-      content: '',
-      timestamp: new Date().toISOString(),
-      toolCalls: []
-    })
-
     set({ isThinking: true, isLoading: true, error: null })
+
+    // 不再预先创建空消息，而是在收到第一个事件时创建
+    let aiMessageCreated = false
+    let aiMessageId = null
+    let currentContentLength = 0
 
     try {
       // 使用流式接口
@@ -311,21 +370,52 @@ export const useChatStore = create((set, get) => ({
               const data = JSON.parse(line.slice(6))
               
               if (data.type === 'content') {
-                // 流式追加内容
-                const currentMessages = get().messages[sessionId] || []
-                const lastMessage = currentMessages[currentMessages.length - 1]
-                if (lastMessage && lastMessage.type === 'assistant') {
-                  get().updateLastMessage({
-                    content: (lastMessage.content || '') + data.content
+                // 第一次收到内容时创建消息
+                if (!aiMessageCreated) {
+                  aiMessageId = Date.now() + 1
+                  get().addMessage({
+                    id: aiMessageId,
+                    type: 'assistant',
+                    content: data.content,
+                    timestamp: new Date().toISOString(),
+                    toolCalls: []
                   })
+                  aiMessageCreated = true
+                  currentContentLength = data.content.length
+                } else {
+                  // 后续内容追加
+                  const currentMessages = get().messages[sessionId] || []
+                  const lastMessage = currentMessages[currentMessages.length - 1]
+                  if (lastMessage && lastMessage.type === 'assistant') {
+                    get().updateLastMessage({
+                      content: (lastMessage.content || '') + data.content
+                    })
+                    currentContentLength += data.content.length
+                  }
                 }
               } else if (data.type === 'tool_call_start') {
-                // 工具调用开始 - 立即添加到显示
+                // 工具调用开始
                 console.log('🔧 [收到工具调用开始]', data.data)
+                
+                // 如果还没创建消息，先创建
+                if (!aiMessageCreated) {
+                  aiMessageId = Date.now() + 1
+                  get().addMessage({
+                    id: aiMessageId,
+                    type: 'assistant',
+                    content: '',
+                    timestamp: new Date().toISOString(),
+                    toolCalls: []
+                  })
+                  aiMessageCreated = true
+                }
+                
                 get().addToolCallToLastMessage({
                   name: data.data.name,
                   arguments: data.data.arguments,
-                  result: null  // 结果稍后填充
+                  result: null,
+                  insertPosition: currentContentLength,
+                  status: 'started'
                 })
               } else if (data.type === 'tool_call_result') {
                 // 工具调用结果 - 更新对应的工具调用
@@ -339,14 +429,26 @@ export const useChatStore = create((set, get) => ({
                     if (updatedToolCalls[i].name === data.data.name && 
                         (updatedToolCalls[i].result === null || updatedToolCalls[i].result === undefined)) {
                       updatedToolCalls[i].result = data.data.result
+                      updatedToolCalls[i].status = 'completed'
+                      updatedToolCalls[i].completedPosition = currentContentLength
                       break
                     }
                   }
                   get().updateLastMessage({ toolCalls: updatedToolCalls })
                   console.log('📝 [工具调用已更新]', updatedToolCalls)
                 }
+              } else if (data.type === 'recommendations') {
+                // 收到推荐查询
+                console.log('💡 [收到推荐查询]', data.data)
+                if (data.data && Array.isArray(data.data) && data.data.length > 0) {
+                  set({ recommendations: data.data })
+                  console.log('✅ [推荐已设置到状态]', data.data)
+                } else {
+                  console.warn('⚠️ [推荐数据为空或格式错误]', data.data)
+                  set({ recommendations: [] })
+                }
               } else if (data.type === 'done') {
-                // 完成
+                // 完成 - 不重新加载历史，避免重复
                 break
               } else if (data.type === 'error') {
                 throw new Error(data.content)
@@ -358,7 +460,8 @@ export const useChatStore = create((set, get) => ({
         }
       }
       
-      // 刷新会话列表
+      // 刷新会话列表（但不重新加载当前会话的历史消息）
+      // 注意：不要在这里重新加载历史消息，因为我们已经通过流式更新了本地消息
       get().fetchSessions()
       
     } catch (error) {
@@ -442,5 +545,35 @@ export const useChatStore = create((set, get) => ({
       sessionsLoaded: false
     })
   }
-}))
+}),
+    {
+      name: 'askdb-chat-storage', // localStorage key
+      partialPersist: true, // 允许部分持久化
+      // 自定义存储和恢复逻辑
+      storage: {
+        getItem: (name) => {
+          const str = localStorage.getItem(name)
+          if (!str) return null
+          return JSON.parse(str)
+        },
+        setItem: (name, value) => {
+          // 只持久化必要的数据
+          const persistData = {
+            state: {
+              currentSessionId: value.state.currentSessionId,
+              messages: value.state.messages,
+              sessions: value.state.sessions,
+              databaseInfo: value.state.databaseInfo
+            },
+            version: value.version
+          }
+          localStorage.setItem(name, JSON.stringify(persistData))
+        },
+        removeItem: (name) => {
+          localStorage.removeItem(name)
+        }
+      }
+    }
+  )
+)
 

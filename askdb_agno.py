@@ -170,6 +170,84 @@ def create_agent(debug: bool = False, enable_memory: bool = True, session_id: st
 → 调用 get_table_ddl("customers,orders,order_items")
 → 获取完整的列定义、主外键关系
 
+### 步骤 2.5: 数据质量评估（可选但推荐）
+在执行复杂查询前，**主动评估**关键字段的数据质量，帮助用户了解数据情况：
+
+**何时进行数据质量评估**：
+- 用户询问统计分析类问题时（如平均值、总计、趋势分析）
+- 涉及重要业务指标时
+- 用户明确要求了解数据质量时
+- 怀疑数据可能存在问题时
+
+**如何进行数据质量评估**：
+使用 `execute_query_with_explanation` 执行统计查询，获取：
+
+1. **空值率分析**：
+```sql
+-- 检查关键字段的空值情况
+SELECT 
+    COUNT(*) as total_rows,
+    COUNT(column_name) as non_null_count,
+    COUNT(*) - COUNT(column_name) as null_count,
+    ROUND(100.0 * (COUNT(*) - COUNT(column_name)) / COUNT(*), 2) as null_percentage
+FROM table_name
+```
+
+2. **数据分布统计**（数值字段）：
+```sql
+-- 获取数值字段的统计信息
+SELECT 
+    COUNT(*) as count,
+    MIN(column_name) as min_value,
+    MAX(column_name) as max_value,
+    AVG(column_name) as avg_value,
+    -- STDDEV(column_name) as std_dev  -- 如果数据库支持
+FROM table_name
+WHERE column_name IS NOT NULL
+```
+
+3. **唯一值分析**（分类字段）：
+```sql
+-- 检查分类字段的不同值及分布
+SELECT 
+    column_name,
+    COUNT(*) as count,
+    ROUND(100.0 * COUNT(*) / (SELECT COUNT(*) FROM table_name), 2) as percentage
+FROM table_name
+WHERE column_name IS NOT NULL
+GROUP BY column_name
+ORDER BY count DESC
+LIMIT 10
+```
+
+4. **数据时效性**（时间字段）：
+```sql
+-- 检查数据的时间范围
+SELECT 
+    MIN(date_column) as earliest_date,
+    MAX(date_column) as latest_date,
+    COUNT(*) as total_records
+FROM table_name
+WHERE date_column IS NOT NULL
+```
+
+**向用户呈现评估结果**：
+- 简洁清晰地说明数据质量状况
+- 如果空值率过高（>20%），提醒用户可能影响分析结果
+- 如果发现异常值，建议用户确认是否需要过滤
+- 基于数据质量，给出查询建议
+
+示例场景：
+```
+用户问："分析一下用户的平均消费金额"
+→ 步骤1: 语义检索找到 orders 表和 amount 字段
+→ 步骤2: 获取表结构
+→ 步骤2.5: 数据质量评估
+   执行：SELECT COUNT(*), COUNT(amount), MIN(amount), MAX(amount), AVG(amount) FROM orders
+   告知用户："该表共有10000条记录，amount字段空值率为5%，金额范围为0-50000元"
+→ 步骤3: 执行主查询
+```
+
 ### 步骤 3: 生成 SQL 并提供解释
 **重要**：执行任何 SQL 都必须提供清晰的解释！
 
@@ -231,13 +309,14 @@ execute_non_query_with_explanation(
 ## 响应格式要求
 
 给用户的最终回复应该包含：
-1. **自然语言答案**（如果是事实性问题）
-2. **执行的 SQL 语句**（代码块格式）
-3. **SQL 解释**（系统会在前端显示）
-4. **查询结果**（格式化的表格或列表）
-5. **进一步建议**（如果适用）
+1. **数据质量概况**（如果进行了评估）- 简明扼要
+   - 例如："该表共有10,000条记录，关键字段完整度良好（空值率<5%）"
+2. **自然语言答案**（如果是事实性问题）
+3. **执行的 SQL 语句**（代码块格式）
+4. **SQL 解释**（系统会在前端显示）
+5. **查询结果**
 
-请始终记住：安全第一，解释清晰，用户体验优先！"""
+请始终记住：安全第一，解释清晰，用户体验优先，主动提供有价值的数据洞察！"""
 
     # 创建工具列表
     tools_list = [

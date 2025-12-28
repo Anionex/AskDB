@@ -364,8 +364,8 @@ class ConversationDB:
             cursor.execute('''
                 SELECT 
                     COUNT(*) as total_messages,
-                    SUM(CASE WHEN role = 'user' THEN 1 ELSE 0 END) as user_messages,
-                    SUM(CASE WHEN role = 'assistant' THEN 1 ELSE 0 END) as assistant_messages,
+                    COALESCE(SUM(CASE WHEN role = 'user' THEN 1 ELSE 0 END), 0) as user_messages,
+                    COALESCE(SUM(CASE WHEN role = 'assistant' THEN 1 ELSE 0 END), 0) as assistant_messages,
                     MIN(created_at) as first_message_at,
                     MAX(created_at) as last_message_at
                 FROM messages
@@ -373,6 +373,10 @@ class ConversationDB:
             ''', (conversation_id,))
             
             stats = dict(cursor.fetchone())
+            # 确保数值字段不为 None
+            stats['user_messages'] = stats.get('user_messages') or 0
+            stats['assistant_messages'] = stats.get('assistant_messages') or 0
+            stats['total_messages'] = stats.get('total_messages') or 0
             return stats
             
         finally:
