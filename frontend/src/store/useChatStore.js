@@ -239,7 +239,7 @@ export const useChatStore = create((set, get) => ({
     }))
   },
 
-  // 发送消息（流式）
+  // 发送消息
   sendMessage: async (content) => {
     const token = localStorage.getItem('askdb_token')
     if (!token) {
@@ -311,26 +311,39 @@ export const useChatStore = create((set, get) => ({
               const data = JSON.parse(line.slice(6))
               
               if (data.type === 'content') {
-                // 更新内容
-                get().updateLastMessage({
-                  content: get().messages[sessionId]?.slice(-1)[0]?.content + data.content
-                })
-              } else if (data.type === 'tool_call') {
-                // 添加工具调用
-                get().addToolCallToLastMessage(data.data)
-              } else if (data.type === 'tool_result') {
-                // 更新工具返回结果
+                // 流式追加内容
                 const currentMessages = get().messages[sessionId] || []
                 const lastMessage = currentMessages[currentMessages.length - 1]
-                if (lastMessage && lastMessage.toolCalls) {
+                if (lastMessage && lastMessage.type === 'assistant') {
+                  get().updateLastMessage({
+                    content: (lastMessage.content || '') + data.content
+                  })
+                }
+              } else if (data.type === 'tool_call_start') {
+                // 工具调用开始 - 立即添加到显示
+                console.log('🔧 [收到工具调用开始]', data.data)
+                get().addToolCallToLastMessage({
+                  name: data.data.name,
+                  arguments: data.data.arguments,
+                  result: null  // 结果稍后填充
+                })
+              } else if (data.type === 'tool_call_result') {
+                // 工具调用结果 - 更新对应的工具调用
+                console.log('✅ [收到工具调用结果]', data.data.name)
+                const currentMessages = get().messages[sessionId] || []
+                const lastMessage = currentMessages[currentMessages.length - 1]
+                if (lastMessage && lastMessage.toolCalls && lastMessage.toolCalls.length > 0) {
                   const updatedToolCalls = [...lastMessage.toolCalls]
-                  const toolIndex = updatedToolCalls.findIndex(t => 
-                    t.name === data.data.name && !t.result
-                  )
-                  if (toolIndex >= 0) {
-                    updatedToolCalls[toolIndex].result = data.data.result
-                    get().updateLastMessage({ toolCalls: updatedToolCalls })
+                  // 找到最后一个名称匹配且结果为空的工具调用
+                  for (let i = updatedToolCalls.length - 1; i >= 0; i--) {
+                    if (updatedToolCalls[i].name === data.data.name && 
+                        (updatedToolCalls[i].result === null || updatedToolCalls[i].result === undefined)) {
+                      updatedToolCalls[i].result = data.data.result
+                      break
+                    }
                   }
+                  get().updateLastMessage({ toolCalls: updatedToolCalls })
+                  console.log('📝 [工具调用已更新]', updatedToolCalls)
                 }
               } else if (data.type === 'done') {
                 // 完成

@@ -465,42 +465,14 @@ def process_chat_message(message: str, session_id: str = "web-session", user_con
         response = agent.run(message)
         ai_response = response.content
         
-        # 提取工具调用信息和返回结果
+        # 提取工具调用信息
         tool_calls = []
         if hasattr(response, 'messages') and response.messages:
-            tool_call_id_map = {}  # 用于匹配工具调用和返回结果
-            
             for msg in response.messages:
-                # 提取工具调用
                 if hasattr(msg, 'tool_calls') and msg.tool_calls:
                     for call in msg.tool_calls:
-                        tool_call_data = None
-                        call_id = None
-                        
-                        # 处理字典格式的tool_call
-                        if isinstance(call, dict) and 'function' in call:
-                            func_data = call['function']
-                            func_name = func_data.get('name', '')
-                            func_args = func_data.get('arguments', {})
-                            call_id = call.get('id')
-                            
-                            # 解析参数（可能是字符串或字典）
-                            if isinstance(func_args, str):
-                                try:
-                                    func_args = json.loads(func_args)
-                                except:
-                                    pass
-                            
-                            tool_call_data = {
-                                'name': func_name,
-                                'arguments': func_args,
-                                'result': None  # 稍后填充
-                            }
-                        # 处理对象格式的tool_call
-                        elif hasattr(call, 'function'):
+                        if hasattr(call, 'function'):
                             func = call.function
-                            call_id = getattr(call, 'id', None)
-                            
                             # 解析参数（可能是字符串或字典）
                             args = func.arguments
                             if isinstance(args, str):
@@ -509,33 +481,10 @@ def process_chat_message(message: str, session_id: str = "web-session", user_con
                                 except:
                                     pass
                             
-                            tool_call_data = {
+                            tool_calls.append({
                                 'name': func.name,
-                                'arguments': args,
-                                'result': None
-                            }
-                        
-                        if tool_call_data:
-                            tool_calls.append(tool_call_data)
-                            if call_id:
-                                tool_call_id_map[call_id] = len(tool_calls) - 1
-                
-                # 提取工具返回结果
-                if hasattr(msg, 'role') and msg.role == 'tool':
-                    content = getattr(msg, 'content', '')
-                    tool_call_id = getattr(msg, 'tool_call_id', None)
-                    
-                    # 如果能匹配到对应的工具调用，添加返回结果
-                    if tool_call_id and tool_call_id in tool_call_id_map:
-                        idx = tool_call_id_map[tool_call_id]
-                        tool_calls[idx]['result'] = content
-                    # 否则，添加到最后一个工具调用（fallback）
-                    elif tool_calls:
-                        # 找到最后一个没有结果的工具调用
-                        for i in range(len(tool_calls) - 1, -1, -1):
-                            if tool_calls[i]['result'] is None:
-                                tool_calls[i]['result'] = content
-                                break
+                                'arguments': args
+                            })
         
         # 保存AI响应到数据库（包含工具调用信息）
         if conversation_db:
@@ -586,7 +535,7 @@ def process_chat_message(message: str, session_id: str = "web-session", user_con
         }
 
 async def process_chat_message_stream(message: str, session_id: str, user_context: dict = None) -> AsyncGenerator[str, None]:
-    """流式处理聊天消息 - 支持实时工具调用显示"""
+    """流式处理聊天消息 - 使用真正的流式API，支持实时工具调用显示"""
     try:
         if not HAS_AGENT:
             yield f"data: {json.dumps({'type': 'error', 'content': 'AskDB Agent模块未加载'}, ensure_ascii=False)}\n\n"
@@ -615,73 +564,97 @@ async def process_chat_message_stream(message: str, session_id: str, user_contex
                 )
         
         from backend.agents import agent_manager
+        from agno.agent import RunEvent
+        
         agent = agent_manager.get_agent(session_id, use_memory=True)
         
-        # 运行agent并收集完整响应
-        response = agent.run(message)
+        # 使用真正的流式API：stream=True 和 stream_events=True
+        # stream_events=True 是关键，用于接收工具调用事件！
+        stream = agent.run(message, stream=True, stream_events=True)
         
-        # 先发送工具调用信息
-        if hasattr(response, 'messages') and response.messages:
-            for msg in response.messages:
-                # 发送工具调用
-                if hasattr(msg, 'tool_calls') and msg.tool_calls:
-                    for call in msg.tool_calls:
-                        tool_call_data = None
-                        
-                        if isinstance(call, dict) and 'function' in call:
-                            func_data = call['function']
-                            func_args = func_data.get('arguments', {})
-                            
-                            if isinstance(func_args, str):
-                                try:
-                                    func_args = json.loads(func_args)
-                                except:
-                                    pass
-                            
-                            tool_call_data = {
-                                'name': func_data.get('name', ''),
-                                'arguments': func_args
-                            }
-                        elif hasattr(call, 'function'):
-                            func = call.function
-                            args = func.arguments
-                            if isinstance(args, str):
-                                try:
-                                    args = json.loads(args)
-                                except:
-                                    pass
-                            
-                            tool_call_data = {
-                                'name': func.name,
-                                'arguments': args
-                            }
-                        
-                        if tool_call_data:
-                            yield f"data: {json.dumps({'type': 'tool_call', 'data': tool_call_data}, ensure_ascii=False)}\n\n"
-                            await asyncio.sleep(0.01)
+        # 用于收集完整响应和工具调用信息
+        full_response = []
+        tool_calls_info = []
+        
+        logger.info(f"开始处理流式事件，stream_events=True")
+        
+        # 遍历流式事件
+        event_count = 0
+        for chunk in stream:
+            event_count += 1
+            event_type = getattr(chunk, 'event', 'unknown')
+            logger.info(f"[事件 {event_count}] {event_type}")
+            
+            # 处理内容流
+            if chunk.event == RunEvent.run_content:
+                content = chunk.content
+                if content:
+                    full_response.append(content)
+                    # 实时发送内容块
+                    yield f"data: {json.dumps({'type': 'content', 'content': content}, ensure_ascii=False)}\n\n"
+                    await asyncio.sleep(0.001)  # 微小延迟以避免过载
+            
+            # 处理工具调用开始事件
+            elif chunk.event == RunEvent.tool_call_started:
+                logger.info(f"🔧 工具调用开始！")
+                tool_name = getattr(chunk.tool, 'tool_name', '')
+                tool_args = getattr(chunk.tool, 'tool_args', {})
+                logger.info(f"   工具名称: {tool_name}")
+                logger.info(f"   工具参数: {tool_args}")
                 
-                # 发送工具返回结果
-                if hasattr(msg, 'role') and msg.role == 'tool':
-                    content = getattr(msg, 'content', '')
-                    yield f"data: {json.dumps({'type': 'tool_result', 'data': {'result': content}}, ensure_ascii=False)}\n\n"
-                    await asyncio.sleep(0.01)
+                # 解析参数（可能是字符串或字典）
+                if isinstance(tool_args, str):
+                    try:
+                        tool_args = json.loads(tool_args)
+                    except:
+                        pass
+                
+                tool_call_data = {
+                    'name': tool_name,
+                    'arguments': tool_args
+                }
+                
+                # 实时发送工具调用开始事件
+                logger.info(f"   发送 tool_call_start 事件")
+                yield f"data: {json.dumps({'type': 'tool_call_start', 'data': tool_call_data}, ensure_ascii=False)}\n\n"
+                await asyncio.sleep(0.001)
+                
+                # 记录工具调用信息
+                tool_calls_info.append({
+                    'name': tool_name,
+                    'arguments': tool_args,
+                    'result': None
+                })
+            
+            # 处理工具调用完成事件
+            elif chunk.event == RunEvent.tool_call_completed:
+                tool_name = getattr(chunk.tool, 'tool_name', '')
+                tool_result = getattr(chunk.tool, 'result', '')
+                
+                # 实时发送工具调用结果
+                yield f"data: {json.dumps({'type': 'tool_call_result', 'data': {'name': tool_name, 'result': tool_result}}, ensure_ascii=False)}\n\n"
+                await asyncio.sleep(0.001)
+                
+                # 更新工具调用信息中的结果
+                for tc in tool_calls_info:
+                    if tc['name'] == tool_name and tc['result'] is None:
+                        tc['result'] = tool_result
+                        break
         
-        # 流式发送最终内容
-        ai_response = response.content if hasattr(response, 'content') else str(response)
+        # 组装完整响应
+        ai_response = ''.join(full_response)
         
-        # 模拟流式输出
-        chunk_size = 20
-        for i in range(0, len(ai_response), chunk_size):
-            chunk = ai_response[i:i+chunk_size]
-            yield f"data: {json.dumps({'type': 'content', 'content': chunk}, ensure_ascii=False)}\n\n"
-            await asyncio.sleep(0.03)
-        
-        # 保存AI响应到数据库
+        # 保存AI响应到数据库（包含工具调用信息）
         if conversation_db:
+            metadata = {}
+            if tool_calls_info:
+                metadata['tool_calls'] = tool_calls_info
+            
             conversation_db.add_message(
                 conversation_id=session_id,
                 role='assistant',
-                content=ai_response
+                content=ai_response,
+                metadata=metadata if metadata else None
             )
             
             # 如果是第一条消息，自动生成标题
@@ -689,6 +662,7 @@ async def process_chat_message_stream(message: str, session_id: str, user_contex
             if stats['user_messages'] == 1:
                 conversation_db.auto_generate_title(session_id)
         
+        # 发送完成事件
         yield f"data: {json.dumps({'type': 'done'}, ensure_ascii=False)}\n\n"
         
     except Exception as e:
@@ -1045,7 +1019,9 @@ async def protected_chat_stream_endpoint(
     user: Dict = Depends(verify_token)
 ):
     """流式聊天接口 - 使用 SSE"""
+    logger.info(f"🌊 [Stream] 收到流式请求: user={user.get('username')}, message={message[:50]}, session={session_id}")
     session_id = f"{user['username']}_{session_id}"
+    logger.info(f"🌊 [Stream] 完整session_id={session_id}")
     return StreamingResponse(
         process_chat_message_stream(message, session_id, user_context=user),
         media_type="text/event-stream"
