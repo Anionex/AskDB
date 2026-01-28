@@ -1,9 +1,63 @@
 import React, { useState } from 'react'
-import { Tag, Typography, Spin, Collapse } from 'antd'
-import { ApiOutlined, LoadingOutlined, CheckCircleOutlined, DownOutlined } from '@ant-design/icons'
+import { Tag, Typography, Spin, Collapse, Button, Tooltip } from 'antd'
+import { ApiOutlined, LoadingOutlined, CheckCircleOutlined, DownOutlined, ExpandOutlined, CompressOutlined, CopyOutlined, CheckOutlined } from '@ant-design/icons'
 import { StreamingMarkdown } from './StreamingMarkdown'
 
 const { Text } = Typography
+
+/**
+ * 可展开的长文本组件
+ */
+const ExpandableText = ({ text, maxLength = 200, style = {} }) => {
+  const [expanded, setExpanded] = useState(false)
+  const [copied, setCopied] = useState(false)
+  
+  const isLong = text && text.length > maxLength
+  const displayText = expanded || !isLong ? text : text.substring(0, maxLength) + '...'
+  
+  const handleCopy = async (e) => {
+    e.stopPropagation()
+    try {
+      await navigator.clipboard.writeText(text)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    } catch (err) {
+      console.error('复制失败:', err)
+    }
+  }
+  
+  return (
+    <div>
+      <Text code style={{ fontSize: '10px', whiteSpace: 'pre-wrap', wordBreak: 'break-word', ...style }}>
+        {displayText}
+      </Text>
+      {isLong && (
+        <div style={{ marginTop: '4px', display: 'flex', gap: '8px' }}>
+          <Button 
+            type="link" 
+            size="small"
+            icon={expanded ? <CompressOutlined /> : <ExpandOutlined />}
+            onClick={(e) => { e.stopPropagation(); setExpanded(!expanded) }}
+            style={{ padding: '0 4px', fontSize: '10px' }}
+          >
+            {expanded ? '收起' : `展开 (${text.length} 字符)`}
+          </Button>
+          <Tooltip title="复制完整内容">
+            <Button 
+              type="link" 
+              size="small"
+              icon={copied ? <CheckOutlined style={{ color: '#52c41a' }} /> : <CopyOutlined />}
+              onClick={handleCopy}
+              style={{ padding: '0 4px', fontSize: '10px' }}
+            >
+              {copied ? '已复制' : '复制'}
+            </Button>
+          </Tooltip>
+        </div>
+      )}
+    </div>
+  )
+}
 
 /**
  * 混合渲染组件：按时间顺序显示内容和工具调用
@@ -160,16 +214,20 @@ const ToolCallBadge = ({ tool, type }) => {
     
     return Object.entries(args).map(([key, value]) => {
       let displayValue = value
-      if (typeof value === 'string' && value.length > 100) {
-        displayValue = value.substring(0, 100) + '...'
-      } else if (typeof value === 'object') {
+      if (typeof value === 'object') {
         displayValue = JSON.stringify(value, null, 2)
+      } else {
+        displayValue = String(value)
       }
       
       return (
         <div key={key} style={{ marginBottom: '4px' }}>
           <Text strong style={{ fontSize: '11px', color: '#666' }}>{key}: </Text>
-          <Text code style={{ fontSize: '10px', whiteSpace: 'pre-wrap' }}>{String(displayValue)}</Text>
+          {displayValue.length > 100 ? (
+            <ExpandableText text={displayValue} maxLength={100} />
+          ) : (
+            <Text code style={{ fontSize: '10px', whiteSpace: 'pre-wrap' }}>{displayValue}</Text>
+          )}
         </div>
       )
     })
@@ -221,20 +279,10 @@ const ToolCallBadge = ({ tool, type }) => {
       displayResult = JSON.stringify(result, null, 2)
     }
     
-    // 截断过长的结果
-    if (typeof displayResult === 'string' && displayResult.length > 200) {
-      displayResult = displayResult.substring(0, 200) + '\n... (结果过长，已截断)'
-    }
+    const resultStr = String(displayResult)
     
-    return (
-      <Text code style={{ 
-        fontSize: '10px', 
-        whiteSpace: 'pre-wrap',
-        wordBreak: 'break-word'
-      }}>
-        {String(displayResult)}
-      </Text>
-    )
+    // 使用可展开组件处理长结果
+    return <ExpandableText text={resultStr} maxLength={300} />
   }
 
   if (type === 'start') {
