@@ -454,7 +454,7 @@ def verify_token(credentials: Optional[HTTPAuthorizationCredentials] = Depends(s
                 detail="无效的令牌"
             )
         
-        logger.info(f"验证JWT token成功: {username}")
+        logger.debug(f"验证JWT token成功: {username}")
         
     except jwt.ExpiredSignatureError:
         logger.warning(f"JWT token已过期")
@@ -484,7 +484,7 @@ def verify_token(credentials: Optional[HTTPAuthorizationCredentials] = Depends(s
             detail="用户不存在或已被禁用"
         )
     
-    logger.info(f"用户验证成功: {username}")
+    logger.debug(f"用户验证成功: {username}")
     return dict(user)
 
 # AskDB AI 功能
