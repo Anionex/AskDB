@@ -30,6 +30,7 @@ import uvicorn
 import json
 import asyncio
 from typing import AsyncGenerator
+from sqlalchemy import inspect
 
 
 logging.basicConfig(level=logging.INFO)
@@ -1979,6 +1980,196 @@ async def vector_search(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"搜索失败: {str(e)}"
+        )
+
+# ==================== 表数据预览 API (管理员) ====================
+
+class TableListResponse(BaseModel):
+    success: bool
+    tables: List[Dict[str, Any]]
+    total: int
+    message: Optional[str] = None
+
+class TablePreviewResponse(BaseModel):
+    success: bool
+    table_name: str
+    columns: List[str]
+    data: List[Dict[str, Any]]
+    total_rows: int
+    page: int
+    page_size: int
+    message: Optional[str] = None
+
+@app.get("/api/protected/admin/tables", response_model=TableListResponse)
+async def get_all_tables(user: Dict = Depends(verify_token)):
+    """
+    获取所有表的列表及基本信息（仅管理员）
+    
+    返回每个表的名称、行数、列数等基本信息
+    """
+    if user["user_type"] != "manager":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="只有管理员可以查看表数据"
+        )
+    
+    if not HAS_AGENT:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="数据库服务未加载"
+        )
+    
+    try:
+        # 确保数据库已连接
+        if not db.is_connected:
+            db.connect()
+        
+        inspector = inspect(db.engine)
+        table_names = inspector.get_table_names()
+        
+        tables_info = []
+        for table_name in table_names:
+            try:
+                # 获取列信息
+                columns = inspector.get_columns(table_name)
+                
+                # 获取行数（使用 LIMIT 优化大表）
+                count_result = db.execute_query(f"SELECT COUNT(*) as cnt FROM {table_name}")
+                row_count = count_result["data"][0]["cnt"] if count_result["success"] and count_result["data"] else 0
+                
+                tables_info.append({
+                    "name": table_name,
+                    "column_count": len(columns),
+                    "row_count": row_count,
+                    "columns": [col["name"] for col in columns]
+                })
+            except Exception as e:
+                logger.warning(f"获取表 {table_name} 信息失败: {e}")
+                tables_info.append({
+                    "name": table_name,
+                    "column_count": 0,
+                    "row_count": 0,
+                    "columns": [],
+                    "error": str(e)
+                })
+        
+        return TableListResponse(
+            success=True,
+            tables=tables_info,
+            total=len(tables_info),
+            message=f"共 {len(tables_info)} 个表"
+        )
+        
+    except Exception as e:
+        logger.error(f"获取表列表失败: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"获取表列表失败: {str(e)}"
+        )
+
+@app.get("/api/protected/admin/tables/{table_name}/preview", response_model=TablePreviewResponse)
+async def get_table_preview(
+    table_name: str,
+    page: int = 1,
+    page_size: int = 50,
+    user: Dict = Depends(verify_token)
+):
+    """
+    获取指定表的数据预览（仅管理员）
+    
+    支持分页，默认每页50条
+    
+    参数:
+        - table_name: 表名
+        - page: 页码（从1开始）
+        - page_size: 每页条数（默认50，最大200）
+    """
+    if user["user_type"] != "manager":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="只有管理员可以查看表数据"
+        )
+    
+    if not HAS_AGENT:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="数据库服务未加载"
+        )
+    
+    # 限制page_size
+    page_size = min(page_size, 200)
+    if page < 1:
+        page = 1
+    
+    try:
+        # 确保数据库已连接
+        if not db.is_connected:
+            db.connect()
+        
+        inspector = inspect(db.engine)
+        
+        # 检查表是否存在
+        if table_name not in inspector.get_table_names():
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"表 '{table_name}' 不存在"
+            )
+        
+        # 获取列信息
+        columns_info = inspector.get_columns(table_name)
+        columns = [col["name"] for col in columns_info]
+        
+        # 获取总行数
+        count_result = db.execute_query(f"SELECT COUNT(*) as cnt FROM {table_name}")
+        total_rows = count_result["data"][0]["cnt"] if count_result["success"] and count_result["data"] else 0
+        
+        # 计算偏移量
+        offset = (page - 1) * page_size
+        
+        # 查询数据（带分页）
+        query = f"SELECT * FROM {table_name} LIMIT {page_size} OFFSET {offset}"
+        result = db.execute_query(query)
+        
+        if not result["success"]:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"查询失败: {result.get('error', '未知错误')}"
+            )
+        
+        # 处理数据，确保可序列化
+        data = []
+        for row in result["data"]:
+            processed_row = {}
+            for key, value in row.items():
+                # 处理特殊类型
+                if value is None:
+                    processed_row[key] = None
+                elif isinstance(value, (datetime,)):
+                    processed_row[key] = value.isoformat()
+                elif isinstance(value, bytes):
+                    processed_row[key] = f"<binary {len(value)} bytes>"
+                else:
+                    processed_row[key] = value
+            data.append(processed_row)
+        
+        return TablePreviewResponse(
+            success=True,
+            table_name=table_name,
+            columns=columns,
+            data=data,
+            total_rows=total_rows,
+            page=page,
+            page_size=page_size,
+            message=f"显示第 {offset + 1} - {offset + len(data)} 条，共 {total_rows} 条"
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"获取表 {table_name} 数据预览失败: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"获取数据预览失败: {str(e)}"
         )
 
 if __name__ == "__main__":

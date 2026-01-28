@@ -13,13 +13,15 @@ import {
   CheckCircleOutlined,
   CloseCircleOutlined,
   SafetyOutlined,
-  BookOutlined
+  BookOutlined,
+  TableOutlined
 } from '@ant-design/icons'
 import { useChatStore } from '../store/useChatStore'
 import { useAuthStore } from '../store/useAuthStore'
 import { IndexManagement } from './IndexManagement'
 import { PermissionsManagement } from './PermissionsManagement'
 import { BusinessMetadataManagement } from './BusinessMetadataManagement'
+import { TableDataPreview } from './TableDataPreview'
 
 const { Sider } = Layout
 const { Text } = Typography
@@ -42,6 +44,7 @@ export const ChatSidebar = () => {
   const [showIndexManagement, setShowIndexManagement] = useState(false)
   const [showPermissionsManagement, setShowPermissionsManagement] = useState(false)
   const [showBusinessMetadata, setShowBusinessMetadata] = useState(false)
+  const [showTablePreview, setShowTablePreview] = useState(false)
 
   useEffect(() => {
     if (user) {
@@ -238,6 +241,15 @@ export const ChatSidebar = () => {
               >
                 术语配置
               </Button>
+              <Button
+                type="default"
+                icon={<TableOutlined />}
+                onClick={() => setShowTablePreview(true)}
+                block
+                style={{ marginTop: '8px' }}
+              >
+                数据预览
+              </Button>
             </>
           )}
           <Button
@@ -269,6 +281,12 @@ export const ChatSidebar = () => {
       <BusinessMetadataManagement
         visible={showBusinessMetadata}
         onClose={() => setShowBusinessMetadata(false)}
+      />
+
+      {/* 表数据预览对话框 */}
+      <TableDataPreview
+        visible={showTablePreview}
+        onClose={() => setShowTablePreview(false)}
       />
     </Sider>
   )
