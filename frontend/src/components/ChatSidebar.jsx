@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react'
-import { Layout, Menu, Button, Input, Typography, Space, Tag, Popconfirm } from 'antd'
-import {
+import { Layout, Menu, Button, Input, Typography, Space, Tag, Popconfirm, Tooltip } from 'antd'
+import { 
   DeleteOutlined,
   EditOutlined,
   ThunderboltOutlined,
@@ -159,10 +159,29 @@ export const ChatSidebar = () => {
               {databaseInfo?.connected ? '数据库已连接' : '数据库未连接'}
             </Text>
           </div>
-          {databaseInfo && (
+          {databaseInfo?.connected && (
             <Text type="secondary" style={{ fontSize: '11px' }}>
               类型: {databaseInfo.database_type} | 表数: {databaseInfo.table_count || 0}
             </Text>
+          )}
+          {!databaseInfo?.connected && databaseInfo?.error && (
+            <Tooltip title={databaseInfo.error} placement="right">
+              <Text 
+                type="danger" 
+                style={{ 
+                  fontSize: '11px', 
+                  wordBreak: 'break-word',
+                  display: 'block',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap',
+                  maxWidth: '100%',
+                  cursor: 'pointer'
+                }}
+              >
+                错误: {databaseInfo.error}
+              </Text>
+            </Tooltip>
           )}
           {user && user.user_type === 'manager' && (
             <>
