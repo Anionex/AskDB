@@ -15,7 +15,8 @@ export default defineConfig({
     },
     watch: {
       usePolling: true,
-      interval: 100
+      interval: 1000,  // 增加到 1 秒
+      ignored: ['**/node_modules/**', '**/dist/**', '**/.git/**', '**/data/**', '**/logs/**', '**/*.log']
     }
   }
 })
