@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react'
-import { Layout, Menu, Button, Input, Typography, Space, Tag, Popconfirm, Tooltip } from 'antd'
+import { Layout, Menu, Button, Input, Typography, Space, Tag, Popconfirm, Tooltip, message } from 'antd'
 import { 
   DeleteOutlined,
   EditOutlined,
@@ -29,6 +29,7 @@ export const ChatSidebar = () => {
     sessions, 
     currentSessionId, 
     databaseInfo,
+    isLoading,
     fetchSessions, 
     createSession, 
     switchSession, 
@@ -57,34 +58,54 @@ export const ChatSidebar = () => {
       key: 'new',
       icon: <PlusOutlined />,
       label: '新建对话',
-      onClick: () => createSession()
+      disabled: isLoading,
+      onClick: () => {
+        if (isLoading) {
+          message.warning('请等待当前对话完成后再新建')
+          return
+        }
+        createSession()
+      }
     },
-    ...filteredSessions.map(session => ({
-      key: session.id,
-      icon: <MessageOutlined />,
-      label: (
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis' }}>
-            {session.title}
-          </span>
-          <Space size="small" onClick={(e) => e.stopPropagation()}>
-            <Popconfirm
-              title="确定删除此会话吗？"
-              onConfirm={() => deleteSession(session.id)}
-              onCancel={(e) => e.stopPropagation()}
-            >
-              <Button
-                type="text"
-                size="small"
-                icon={<DeleteOutlined />}
-                danger
-                onClick={(e) => e.stopPropagation()}
-              />
-            </Popconfirm>
-          </Space>
-        </div>
-      )
-    }))
+    ...filteredSessions.map(session => {
+      const isCurrentSession = session.id === currentSessionId
+      const isDisabled = isLoading && !isCurrentSession
+      
+      return {
+        key: session.id,
+        icon: <MessageOutlined />,
+        disabled: isDisabled,
+        label: (
+          <div style={{ 
+            display: 'flex', 
+            justifyContent: 'space-between', 
+            alignItems: 'center',
+            opacity: isDisabled ? 0.5 : 1
+          }}>
+            <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+              {session.title}
+            </span>
+            <Space size="small" onClick={(e) => e.stopPropagation()}>
+              <Popconfirm
+                title="确定删除此会话吗？"
+                onConfirm={() => deleteSession(session.id)}
+                onCancel={(e) => e.stopPropagation()}
+                disabled={isLoading}
+              >
+                <Button
+                  type="text"
+                  size="small"
+                  icon={<DeleteOutlined />}
+                  danger
+                  disabled={isLoading}
+                  onClick={(e) => e.stopPropagation()}
+                />
+              </Popconfirm>
+            </Space>
+          </div>
+        )
+      }
+    })
   ]
 
   return (
@@ -133,6 +154,11 @@ export const ChatSidebar = () => {
         items={menuItems}
         onClick={({ key }) => {
           if (key !== 'new') {
+            // 如果正在加载中且尝试切换到其他对话，阻止切换
+            if (isLoading && key !== currentSessionId) {
+              message.warning('请等待当前对话完成后再切换')
+              return
+            }
             switchSession(key)
           }
         }}
