@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react'
-import { Layout, Form, Input, Button, Card, Select, Space, message, Typography, Alert, Tooltip } from 'antd'
-import { UserOutlined, LockOutlined, MailOutlined, DatabaseOutlined, UserSwitchOutlined, CrownOutlined, QuestionCircleOutlined } from '@ant-design/icons'
+import { Layout, Form, Input, Button, Card, Select, Space, message, Typography } from 'antd'
+import { UserOutlined, LockOutlined, MailOutlined, DatabaseOutlined, UserSwitchOutlined, CrownOutlined } from '@ant-design/icons'
 import axios from 'axios'
 import { useAuthStore } from './store/useAuthStore'
 import { useChatStore } from './store/useChatStore'
@@ -175,52 +175,20 @@ function App() {
                 layout="vertical"
                 size="large"
               >
-                <Alert
-                  message="用户类型说明"
-                  description={
-                    <div style={{ fontSize: '12px' }}>
-                      <p style={{ margin: '4px 0' }}>请输入您的用户类型，当前有效的类型为：<strong>{validUserTypes.join('、')}</strong></p>
-                      <p style={{ margin: '4px 0', color: '#ff4d4f' }}>注意：admin 为系统保留类型，不可注册</p>
-                    </div>
-                  }
-                  type="info"
-                  showIcon
-                  style={{ marginBottom: '16px' }}
-                />
                 <Form.Item
-                  label={
-                    <Space>
-                      <span>用户类型</span>
-                      <Tooltip title={`有效的用户类型: ${validUserTypes.join('、')}。不同类型具有不同的数据访问权限。`}>
-                        <QuestionCircleOutlined style={{ color: '#1890ff' }} />
-                      </Tooltip>
-                    </Space>
-                  }
+                  label="用户类型"
                   name="userType"
-                  rules={[
-                    { required: true, message: '请输入用户类型' },
-                    {
-                      validator: (_, value) => {
-                        if (!value) {
-                          return Promise.resolve()
-                        }
-                        const lowerValue = value.toLowerCase().trim()
-                        if (lowerValue === 'admin') {
-                          return Promise.reject(new Error('不允许注册为 admin 用户类型'))
-                        }
-                        if (!validUserTypes.map(t => t.toLowerCase()).includes(lowerValue)) {
-                          return Promise.reject(new Error(`无效的用户类型，有效类型为: ${validUserTypes.join('、')}`))
-                        }
-                        return Promise.resolve()
-                      }
-                    }
-                  ]}
+                  rules={[{ required: true, message: '请选择用户类型' }]}
+                  tooltip="不同类型具有不同的数据访问权限"
                 >
-                  <Input 
-                    prefix={<UserSwitchOutlined />} 
-                    placeholder={`例如: ${validUserTypes[0] || 'student'}`}
-                    allowClear
-                  />
+                  <Select
+                    placeholder="请选择用户类型"
+                    suffixIcon={<UserSwitchOutlined />}
+                  >
+                    {validUserTypes.map(type => (
+                      <Select.Option key={type} value={type}>{type}</Select.Option>
+                    ))}
+                  </Select>
                 </Form.Item>
                 <Form.Item
                   name="username"
