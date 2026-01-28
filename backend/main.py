@@ -249,6 +249,15 @@ class ConfirmActionRequest(BaseModel):
     explanation: str
     action: str  # "approve" or "reject"
 
+class PermissionsConfigRequest(BaseModel):
+    yaml_content: str  # 原始YAML内容
+
+class PermissionsConfigResponse(BaseModel):
+    success: bool
+    yaml_content: Optional[str] = None
+    message: Optional[str] = None
+    enabled: Optional[bool] = None
+
 # 数据库初始化
 def init_database():
     """初始化用户数据库"""
@@ -1347,6 +1356,124 @@ async def get_users(user: Dict = Depends(verify_token)):
     conn.close()
     
     return [dict(user) for user in users]
+
+# ==================== 权限配置管理 API ====================
+
+@app.get("/api/protected/admin/permissions", response_model=PermissionsConfigResponse)
+async def get_permissions_config(user: Dict = Depends(verify_token)):
+    """
+    获取权限配置（仅管理员）
+    
+    返回当前的 permissions.yaml 配置内容
+    """
+    if user["user_type"] != "manager":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="只有管理员可以查看权限配置"
+        )
+    
+    try:
+        from lib.permissions import get_permission_checker
+        
+        checker = get_permission_checker()
+        yaml_content = checker.config.get_raw_yaml()
+        
+        return PermissionsConfigResponse(
+            success=True,
+            yaml_content=yaml_content,
+            enabled=checker.config.enabled,
+            message="权限配置获取成功"
+        )
+    except Exception as e:
+        logger.error(f"获取权限配置失败: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"获取权限配置失败: {str(e)}"
+        )
+
+@app.put("/api/protected/admin/permissions", response_model=PermissionsConfigResponse)
+async def update_permissions_config(
+    request: PermissionsConfigRequest,
+    user: Dict = Depends(verify_token)
+):
+    """
+    更新权限配置（仅管理员）
+    
+    保存新的 permissions.yaml 配置内容
+    
+    注意：
+    - 配置会立即生效
+    - 原配置会自动备份为 permissions.yaml.bak
+    """
+    if user["user_type"] != "manager":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="只有管理员可以修改权限配置"
+        )
+    
+    try:
+        from lib.permissions import get_permission_checker, reload_permissions
+        
+        checker = get_permission_checker()
+        success, message = checker.config.save_raw_yaml(request.yaml_content)
+        
+        if success:
+            # 重新加载全局权限检查器
+            reload_permissions()
+            
+            logger.info(f"管理员 {user['username']} 更新了权限配置")
+            
+            return PermissionsConfigResponse(
+                success=True,
+                yaml_content=request.yaml_content,
+                enabled=checker.config.enabled,
+                message="权限配置已更新并生效"
+            )
+        else:
+            return PermissionsConfigResponse(
+                success=False,
+                message=message
+            )
+            
+    except Exception as e:
+        logger.error(f"更新权限配置失败: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"更新权限配置失败: {str(e)}"
+        )
+
+@app.post("/api/protected/admin/permissions/reload")
+async def reload_permissions_config(user: Dict = Depends(verify_token)):
+    """
+    重新加载权限配置（仅管理员）
+    
+    从文件重新读取配置，不修改文件内容
+    """
+    if user["user_type"] != "manager":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="只有管理员可以重新加载权限配置"
+        )
+    
+    try:
+        from lib.permissions import reload_permissions, get_permission_checker
+        
+        reload_permissions()
+        checker = get_permission_checker()
+        
+        logger.info(f"管理员 {user['username']} 重新加载了权限配置")
+        
+        return {
+            "success": True,
+            "message": "权限配置已重新加载",
+            "enabled": checker.config.enabled
+        }
+    except Exception as e:
+        logger.error(f"重新加载权限配置失败: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"重新加载权限配置失败: {str(e)}"
+        )
 
 # ==================== 索引管理 API ====================
 

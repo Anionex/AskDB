@@ -9,6 +9,7 @@ import os
 import re
 import logging
 from typing import Optional, Dict, List, Any, Tuple
+import shutil
 from pathlib import Path
 import yaml
 import sqlparse
@@ -82,7 +83,158 @@ class PermissionConfig:
     def reload(self):
         """重新加载配置"""
         self.config = self._load_config()
+        self.enabled = self.config.get("global_settings", {}).get("enabled", True)
+        self.log_checks = self.config.get("global_settings", {}).get("log_checks", True)
+        self.verbose_errors = self.config.get("global_settings", {}).get("verbose_errors", True)
         logger.info("权限配置已重新加载")
+    
+    def save_config(self, new_config: Dict) -> bool:
+        """
+        保存配置到文件
+        
+        Args:
+            new_config: 新的配置字典
+            
+        Returns:
+            是否保存成功
+        """
+        try:
+            # 验证配置格式
+            if not self._validate_config(new_config):
+                logger.error("配置格式验证失败")
+                return False
+            
+            # 备份当前配置
+            backup_path = self.config_path.with_suffix('.yaml.bak')
+            if self.config_path.exists():
+                shutil.copy(self.config_path, backup_path)
+                logger.info(f"已备份配置到: {backup_path}")
+            
+            # 写入新配置
+            with open(self.config_path, 'w', encoding='utf-8') as f:
+                yaml.dump(new_config, f, allow_unicode=True, default_flow_style=False, sort_keys=False)
+            
+            # 重新加载配置
+            self.config = new_config
+            self.enabled = self.config.get("global_settings", {}).get("enabled", True)
+            self.log_checks = self.config.get("global_settings", {}).get("log_checks", True)
+            self.verbose_errors = self.config.get("global_settings", {}).get("verbose_errors", True)
+            
+            logger.info(f"权限配置已保存: {self.config_path}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"保存权限配置失败: {e}")
+            return False
+    
+    def _validate_config(self, config: Dict) -> bool:
+        """
+        验证配置格式是否正确
+        
+        Args:
+            config: 配置字典
+            
+        Returns:
+            是否有效
+        """
+        try:
+            # 检查必要字段
+            if not isinstance(config, dict):
+                return False
+            
+            # permissions 字段应该是列表
+            if "permissions" in config:
+                if not isinstance(config["permissions"], list):
+                    return False
+                
+                for perm in config["permissions"]:
+                    if not isinstance(perm, dict):
+                        return False
+                    if "table" not in perm:
+                        return False
+                    if "roles" in perm and not isinstance(perm["roles"], list):
+                        return False
+            
+            # global_settings 字段应该是字典
+            if "global_settings" in config:
+                if not isinstance(config["global_settings"], dict):
+                    return False
+            
+            # default_permission 字段应该是字典
+            if "default_permission" in config:
+                if not isinstance(config["default_permission"], dict):
+                    return False
+            
+            return True
+            
+        except Exception as e:
+            logger.error(f"配置验证出错: {e}")
+            return False
+    
+    def get_config(self) -> Dict:
+        """
+        获取当前配置
+        
+        Returns:
+            当前配置字典
+        """
+        return self.config.copy()
+    
+    def get_raw_yaml(self) -> str:
+        """
+        获取原始YAML内容
+        
+        Returns:
+            YAML格式的配置字符串
+        """
+        try:
+            if self.config_path.exists():
+                with open(self.config_path, 'r', encoding='utf-8') as f:
+                    return f.read()
+            else:
+                return yaml.dump(self._get_default_config(), allow_unicode=True, default_flow_style=False)
+        except Exception as e:
+            logger.error(f"读取配置文件失败: {e}")
+            return ""
+    
+    def save_raw_yaml(self, yaml_content: str) -> Tuple[bool, str]:
+        """
+        保存原始YAML内容
+        
+        Args:
+            yaml_content: YAML格式的配置字符串
+            
+        Returns:
+            (是否成功, 错误消息)
+        """
+        try:
+            # 尝试解析YAML以验证格式
+            new_config = yaml.safe_load(yaml_content)
+            
+            if new_config is None:
+                return False, "YAML内容为空"
+            
+            if not self._validate_config(new_config):
+                return False, "配置格式无效"
+            
+            # 备份当前配置
+            backup_path = self.config_path.with_suffix('.yaml.bak')
+            if self.config_path.exists():
+                shutil.copy(self.config_path, backup_path)
+            
+            # 写入新内容
+            with open(self.config_path, 'w', encoding='utf-8') as f:
+                f.write(yaml_content)
+            
+            # 重新加载
+            self.reload()
+            
+            return True, "保存成功"
+            
+        except yaml.YAMLError as e:
+            return False, f"YAML语法错误: {e}"
+        except Exception as e:
+            return False, f"保存失败: {e}"
     
     def get_table_permissions(self, table_name: str, username: str, user_type: Optional[str] = None) -> Dict[str, Any]:
         """

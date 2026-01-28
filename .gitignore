@@ -110,3 +110,6 @@ nul
 # Database and vector store data
 data/
 backend/data/
+
+# Permissions config (use permissions.yaml.example as template)
+config/permissions.yaml

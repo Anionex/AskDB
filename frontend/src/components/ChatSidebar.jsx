@@ -11,11 +11,13 @@ import {
   UserOutlined,
   CrownOutlined,
   CheckCircleOutlined,
-  CloseCircleOutlined
+  CloseCircleOutlined,
+  SafetyOutlined
 } from '@ant-design/icons'
 import { useChatStore } from '../store/useChatStore'
 import { useAuthStore } from '../store/useAuthStore'
 import { IndexManagement } from './IndexManagement'
+import { PermissionsManagement } from './PermissionsManagement'
 
 const { Sider } = Layout
 const { Text } = Typography
@@ -35,6 +37,7 @@ export const ChatSidebar = () => {
   const { user, logout } = useAuthStore()
   const [searchText, setSearchText] = useState('')
   const [showIndexManagement, setShowIndexManagement] = useState(false)
+  const [showPermissionsManagement, setShowPermissionsManagement] = useState(false)
 
   useEffect(() => {
     if (user) {
@@ -159,15 +162,26 @@ export const ChatSidebar = () => {
             </Text>
           )}
           {user && user.user_type === 'manager' && (
-            <Button
-              type="default"
-              icon={<ThunderboltOutlined />}
-              onClick={() => setShowIndexManagement(true)}
-              block
-              style={{ marginTop: '8px' }}
-            >
-              索引管理
-            </Button>
+            <>
+              <Button
+                type="default"
+                icon={<ThunderboltOutlined />}
+                onClick={() => setShowIndexManagement(true)}
+                block
+                style={{ marginTop: '8px' }}
+              >
+                索引管理
+              </Button>
+              <Button
+                type="default"
+                icon={<SafetyOutlined />}
+                onClick={() => setShowPermissionsManagement(true)}
+                block
+                style={{ marginTop: '8px' }}
+              >
+                权限配置
+              </Button>
+            </>
           )}
           <Button
             type="text"
@@ -186,6 +200,12 @@ export const ChatSidebar = () => {
       <IndexManagement
         visible={showIndexManagement}
         onClose={() => setShowIndexManagement(false)}
+      />
+
+      {/* 权限配置管理对话框 */}
+      <PermissionsManagement
+        visible={showPermissionsManagement}
+        onClose={() => setShowPermissionsManagement(false)}
       />
     </Sider>
   )
