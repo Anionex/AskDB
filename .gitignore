@@ -113,3 +113,4 @@ backend/data/
 
 # Permissions config (use permissions.yaml.example as template)
 config/permissions.yaml
+config/permissions.yaml.bak
