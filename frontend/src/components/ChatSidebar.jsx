@@ -151,22 +151,30 @@ export const ChatSidebar = () => {
         />
       </div>
 
-      <Menu
-        mode="inline"
-        selectedKeys={currentSessionId ? [currentSessionId] : []}
-        items={menuItems}
-        onClick={({ key }) => {
-          if (key !== 'new') {
-            // 如果正在加载中且尝试切换到其他对话，阻止切换
-            if (isLoading && key !== currentSessionId) {
-              message.warning('请等待当前对话完成后再切换')
-              return
+      {/* 会话列表区域 - 根据用户类型动态计算底部空间 */}
+      <div style={{ 
+        height: user?.user_type === 'manager' 
+          ? 'calc(100vh - 140px - 320px)'  // 管理员：顶部140px + 底部按钮区320px
+          : 'calc(100vh - 140px - 120px)',  // 普通用户：顶部140px + 底部120px
+        overflow: 'auto'
+      }}>
+        <Menu
+          mode="inline"
+          selectedKeys={currentSessionId ? [currentSessionId] : []}
+          items={menuItems}
+          onClick={({ key }) => {
+            if (key !== 'new') {
+              // 如果正在加载中且尝试切换到其他对话，阻止切换
+              if (isLoading && key !== currentSessionId) {
+                message.warning('请等待当前对话完成后再切换')
+                return
+              }
+              switchSession(key)
             }
-            switchSession(key)
-          }
-        }}
-        style={{ borderRight: 0, height: 'calc(100vh - 200px)', overflow: 'auto' }}
-      />
+          }}
+          style={{ borderRight: 0 }}
+        />
+      </div>
 
       <div style={{ 
         padding: '16px', 
