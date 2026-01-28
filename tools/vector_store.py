@@ -388,30 +388,36 @@ class VectorStore:
             return 0
     
     def search(self, query: str, top_k: int = 5, 
-              search_types: List[str] = None) -> List[SearchResult]:
+              search_types: List[str] = None,
+              min_per_type: int = 3) -> List[SearchResult]:
         """
         语义搜索
         
         Args:
             query: 查询文本
-            top_k: 返回结果数量
+            top_k: 每种类型返回的最大结果数量
             search_types: 搜索类型列表 ["table", "column", "business_term"]
+            min_per_type: 每种类型至少返回的结果数量（保证多样性）
             
         Returns:
-            SearchResult 列表
+            SearchResult 列表（按类型分组，每种类型内部按相似度排序）
         """
         if search_types is None:
             search_types = ["table", "column", "business_term"]
         
-        results = []
+        # 分类存储结果
+        tables = []
+        columns = []
+        business_terms = []
         
         try:
-            # 搜索表
+            # 搜索表 - 表是最重要的，多取一些
             if "table" in search_types:
                 try:
+                    n_tables = max(top_k, min_per_type * 2)  # 表至少取更多
                     table_results = self.tables_collection.query(
                         query_texts=[query],
-                        n_results=min(top_k, self.tables_collection.count()) if self.tables_collection.count() > 0 else 1
+                        n_results=min(n_tables, self.tables_collection.count()) if self.tables_collection.count() > 0 else 1
                     )
                     
                     if table_results['ids'] and table_results['ids'][0]:
@@ -422,7 +428,7 @@ class VectorStore:
                             # 这样distance=0时similarity=1, distance越大similarity越接近0
                             similarity = 1.0 / (1.0 + distance)
                             
-                            results.append(SearchResult(
+                            tables.append(SearchResult(
                                 name=metadata['table_name'],
                                 item_type="table",
                                 similarity=similarity,
@@ -445,7 +451,7 @@ class VectorStore:
                             distance = column_results['distances'][0][i]
                             similarity = 1.0 / (1.0 + distance)
                             
-                            results.append(SearchResult(
+                            columns.append(SearchResult(
                                 name=f"{metadata['table_name']}.{metadata['column_name']}",
                                 item_type="column",
                                 similarity=similarity,
@@ -468,7 +474,7 @@ class VectorStore:
                             distance = term_results['distances'][0][i]
                             similarity = 1.0 / (1.0 + distance)
                             
-                            results.append(SearchResult(
+                            business_terms.append(SearchResult(
                                 name=metadata['term_name'],
                                 item_type="business_term",
                                 similarity=similarity,
@@ -477,10 +483,21 @@ class VectorStore:
                 except Exception as e:
                     logger.debug(f"Business term search error: {e}")
             
-            # 按相似度排序
-            results.sort(key=lambda x: x.similarity, reverse=True)
+            # 每种类型内部按相似度排序
+            tables.sort(key=lambda x: x.similarity, reverse=True)
+            columns.sort(key=lambda x: x.similarity, reverse=True)
+            business_terms.sort(key=lambda x: x.similarity, reverse=True)
             
-            return results[:top_k]
+            # 组合结果：每种类型至少返回 min_per_type 个（如果有足够数据）
+            results = []
+            # 业务术语（语义搜索的核心价值）
+            results.extend(business_terms[:max(top_k, min_per_type)])
+            # 表
+            results.extend(tables[:max(top_k, min_per_type)])
+            # 列
+            results.extend(columns[:max(top_k, min_per_type)])
+            
+            return results
             
         except Exception as e:
             logger.error(f"Search failed: {e}")

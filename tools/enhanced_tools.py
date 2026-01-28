@@ -98,19 +98,27 @@ class EnhancedDatabaseTools(Toolkit):
                         "relevance": round(result.similarity, 3)
                     })
             
-            # 提取最相关的表名
-            relevant_tables = list(set([t["table_name"] for t in tables] + 
-                                      [c["table"] for c in columns]))
+            # 提取最相关的表名（从 tables 和 columns 中提取，保持顺序）
+            seen_tables = set()
+            relevant_tables = []
+            for t in tables:
+                if t["table_name"] not in seen_tables:
+                    relevant_tables.append(t["table_name"])
+                    seen_tables.add(t["table_name"])
+            for c in columns:
+                if c["table"] not in seen_tables:
+                    relevant_tables.append(c["table"])
+                    seen_tables.add(c["table"])
             
             response = {
                 "success": True,
                 "found": True,
                 "query": query,
-                "relevant_tables": relevant_tables[:5],
-                "tables": tables[:3],
+                "relevant_tables": relevant_tables[:8],  # 增加返回数量
+                "tables": tables[:5],  # 增加返回数量
                 "columns": columns[:5],
-                "business_terms": business_terms[:2],
-                "next_step": f"使用 get_table_ddl 获取这些表的完整结构: {', '.join(relevant_tables[:3])}"
+                "business_terms": business_terms[:3],
+                "next_step": f"使用 get_table_ddl 获取这些表的完整结构: {', '.join(relevant_tables[:5])}"
             }
             
             return json.dumps(response, ensure_ascii=False, indent=2)
