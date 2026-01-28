@@ -1,12 +1,9 @@
 import { create } from 'zustand'
-import { persist } from 'zustand/middleware'
 import axios from 'axios'
 
 const API_BASE = 'http://localhost:8000/api'
 
-export const useChatStore = create(
-  persist(
-    (set, get) => ({
+export const useChatStore = create((set, get) => ({
   // 会话列表
   sessions: [],
   currentSessionId: null,
@@ -91,15 +88,12 @@ export const useChatStore = create(
 
   // 切换会话
   switchSession: async (sessionId) => {
-    set({ 
+    set({
       currentSessionId: sessionId,
       recommendations: []  // 清空推荐
     })
-    // 如果该会话没有消息缓存或消息为空，加载历史
-    const cachedMessages = get().messages[sessionId]
-    if (!cachedMessages || cachedMessages.length === 0) {
-      await get().loadSessionHistory(sessionId)
-    }
+    // 始终从后端加载最新历史
+    await get().loadSessionHistory(sessionId)
   },
 
   // 加载会话历史
@@ -112,75 +106,22 @@ export const useChatStore = create(
         `${API_BASE}/protected/sessions/${sessionId}/history`,
         { headers: { Authorization: `Bearer ${token}` } }
       )
-      
+
       if (response.data.success) {
         const historyMessages = response.data.messages || []
-        
-        // 获取当前本地消息
-        const localMessages = get().messages[sessionId] || []
-        
-        // 如果本地已经有消息，进行智能合并而不是直接替换
-        // 这样可以避免流式消息和数据库消息重复
-        if (localMessages.length > 0) {
-          console.log('🔄 合并本地消息和历史消息', {
-            local: localMessages.length,
-            history: historyMessages.length
-          })
-          
-          // 创建消息指纹函数（用于判断消息是否重复）
-          const getMessageFingerprint = (msg) => {
-            // 使用角色、内容前100字符和时间戳（精确到秒）来生成指纹
-            const contentPrefix = (msg.content || '').substring(0, 100)
-            const timestamp = new Date(msg.timestamp).getTime()
-            // 时间戳精确到秒（避免毫秒级差异）
-            const timestampSecond = Math.floor(timestamp / 1000)
-            return `${msg.type}-${contentPrefix}-${timestampSecond}`
+        // 直接使用后端数据作为唯一数据源
+        set(state => ({
+          messages: {
+            ...state.messages,
+            [sessionId]: historyMessages
           }
-          
-          // 使用 Set 记录已存在的消息指纹
-          const existingFingerprints = new Set(
-            localMessages.map(msg => getMessageFingerprint(msg))
-          )
-          
-          // 过滤掉已存在的历史消息
-          const newMessages = historyMessages.filter(msg => {
-            const fingerprint = getMessageFingerprint(msg)
-            return !existingFingerprints.has(fingerprint)
-          })
-          
-          console.log(`📝 去重结果: 本地${localMessages.length}条, 历史${historyMessages.length}条, 新增${newMessages.length}条`)
-          
-          // 合并消息并按时间戳排序
-          const mergedMessages = [...localMessages, ...newMessages].sort(
-            (a, b) => new Date(a.timestamp) - new Date(b.timestamp)
-          )
-          
-          set(state => ({
-            messages: { 
-              ...state.messages, 
-              [sessionId]: mergedMessages
-            }
-          }))
-        } else {
-          // 如果本地没有消息，直接使用历史消息
-          console.log('📥 直接加载历史消息:', historyMessages.length, '条')
-          set(state => ({
-            messages: { 
-              ...state.messages, 
-              [sessionId]: historyMessages
-            }
-          }))
-        }
+        }))
       }
     } catch (error) {
       console.error('加载会话历史失败:', error)
-      // 如果加载失败，保留本地消息
-      const localMessages = get().messages[sessionId] || []
-      if (localMessages.length === 0) {
-        set(state => ({
-          messages: { ...state.messages, [sessionId]: [] }
-        }))
-      }
+      set(state => ({
+        messages: { ...state.messages, [sessionId]: [] }
+      }))
     }
   },
 
@@ -640,35 +581,5 @@ export const useChatStore = create(
       pendingConfirmation: null
     })
   }
-}),
-    {
-      name: 'askdb-chat-storage', // localStorage key
-      partialPersist: true, // 允许部分持久化
-      // 自定义存储和恢复逻辑
-      storage: {
-        getItem: (name) => {
-          const str = localStorage.getItem(name)
-          if (!str) return null
-          return JSON.parse(str)
-        },
-        setItem: (name, value) => {
-          // 只持久化必要的数据
-          const persistData = {
-            state: {
-              currentSessionId: value.state.currentSessionId,
-              messages: value.state.messages,
-              sessions: value.state.sessions,
-              databaseInfo: value.state.databaseInfo
-            },
-            version: value.version
-          }
-          localStorage.setItem(name, JSON.stringify(persistData))
-        },
-        removeItem: (name) => {
-          localStorage.removeItem(name)
-        }
-      }
-    }
-  )
-)
+}))
 
