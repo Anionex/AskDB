@@ -101,8 +101,8 @@ class PermissionConfig:
             if table_perm["table"].lower() == table_name.lower():
                 # 查找匹配的角色
                 for role in table_perm.get("roles", []):
-                    # 优先使用 user_type 匹配
-                    if user_type and role.get("user_type") == user_type:
+                    # 优先使用 user_type 匹配（大小写不敏感）
+                    if user_type and (role.get("user_type") or "").lower() == user_type.lower():
                         permission = {
                             "allowed_operations": role.get("allowed_operations", ["SELECT"]),
                             "allowed_columns": role.get("allowed_columns"),
