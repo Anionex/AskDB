@@ -20,7 +20,7 @@ export const PermissionsManagement = ({ visible, onClose }) => {
     setError(null)
     try {
       const token = localStorage.getItem('askdb_token')
-      const response = await axios.get('http://localhost:8000/api/protected/admin/permissions', {
+      const response = await axios.get('/api/protected/admin/permissions', {
         headers: { Authorization: `Bearer ${token}` }
       })
       
@@ -62,7 +62,7 @@ export const PermissionsManagement = ({ visible, onClose }) => {
     try {
       const token = localStorage.getItem('askdb_token')
       const response = await axios.put(
-        'http://localhost:8000/api/protected/admin/permissions',
+        '/api/protected/admin/permissions',
         { yaml_content: yamlContent },
         { headers: { Authorization: `Bearer ${token}` } }
       )

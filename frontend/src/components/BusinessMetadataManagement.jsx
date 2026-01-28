@@ -24,7 +24,7 @@ export const BusinessMetadataManagement = ({ visible, onClose }) => {
     setError(null)
     try {
       const token = localStorage.getItem('askdb_token')
-      const response = await axios.get('http://localhost:8000/api/protected/admin/business-metadata', {
+      const response = await axios.get('/api/protected/admin/business-metadata', {
         headers: { Authorization: `Bearer ${token}` }
       })
 
@@ -83,7 +83,7 @@ export const BusinessMetadataManagement = ({ visible, onClose }) => {
       }
 
       const response = await axios.put(
-        'http://localhost:8000/api/protected/admin/business-metadata',
+        '/api/protected/admin/business-metadata',
         { data: dataToSave },
         { headers: { Authorization: `Bearer ${token}` } }
       )
@@ -111,7 +111,7 @@ export const BusinessMetadataManagement = ({ visible, onClose }) => {
     try {
       const token = localStorage.getItem('askdb_token')
       const response = await axios.get(
-        'http://localhost:8000/api/protected/admin/business-metadata/export',
+        '/api/protected/admin/business-metadata/export',
         {
           headers: { Authorization: `Bearer ${token}` },
           responseType: 'blob'

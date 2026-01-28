@@ -10,7 +10,7 @@ import './App.css'
 
 const { Content } = Layout
 const { Title, Text } = Typography
-const API_BASE = 'http://localhost:8000/api'
+const API_BASE = '/api'
 
 function App() {
   const { user, isLoggedIn, checkAuth, login, logout } = useAuthStore()

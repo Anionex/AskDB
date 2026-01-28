@@ -32,7 +32,7 @@ export const IndexManagement = ({ visible, onClose }) => {
     const fetchStatus = async () => {
       try {
         const token = localStorage.getItem('askdb_token')
-        const response = await axios.get('http://localhost:8000/api/protected/index/status', {
+        const response = await axios.get('/api/protected/index/status', {
           headers: { Authorization: `Bearer ${token}` }
         })
         setIndexStatus(response.data)
@@ -52,7 +52,7 @@ export const IndexManagement = ({ visible, onClose }) => {
     try {
       const token = localStorage.getItem('askdb_token')
       const response = await axios.post(
-        'http://localhost:8000/api/protected/index/trigger',
+        '/api/protected/index/trigger',
         {},
         { headers: { Authorization: `Bearer ${token}` } }
       )
@@ -83,12 +83,12 @@ export const IndexManagement = ({ visible, onClose }) => {
       onOk: async () => {
         try {
           const token = localStorage.getItem('askdb_token')
-          await axios.delete('http://localhost:8000/api/protected/index/clear', {
+          await axios.delete('/api/protected/index/clear', {
             headers: { Authorization: `Bearer ${token}` }
           })
           message.success('索引已清空')
           // 刷新状态
-          const response = await axios.get('http://localhost:8000/api/protected/index/status', {
+          const response = await axios.get('/api/protected/index/status', {
             headers: { Authorization: `Bearer ${token}` }
           })
           setIndexStatus(response.data)
@@ -115,7 +115,7 @@ export const IndexManagement = ({ visible, onClose }) => {
     try {
       const token = localStorage.getItem('askdb_token')
       const response = await axios.post(
-        'http://localhost:8000/api/protected/vector/search',
+        '/api/protected/vector/search',
         {
           query: query.trim(),
           top_k: 10,
