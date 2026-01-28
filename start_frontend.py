@@ -13,13 +13,14 @@ from pathlib import Path
 def find_node_installation():
     """查找系统中安装的 Node.js"""
     
-    # 方法: 使用 where 命令查找
+    # 根据操作系统选择查找命令
+    find_cmd = "which" if sys.platform != "win32" else "where"
+    
     try:
         result = subprocess.run(
-            ["where", "node"], 
+            [find_cmd, "node"], 
             capture_output=True, 
             text=True, 
-            shell=True,
             timeout=10
         )
         if result.returncode == 0 and result.stdout.strip():
@@ -27,7 +28,7 @@ def find_node_installation():
             node_dir = os.path.dirname(node_path)
             return node_dir
     except Exception as e:
-        print(f"ℹ️ where 命令查找失败: {e}")
+        print(f"ℹ️ {find_cmd} 命令查找失败: {e}")
     
     return None
 
@@ -39,8 +40,10 @@ def setup_environment():
     node_dir = find_node_installation()
     
     if node_dir:
+        # 根据操作系统选择 PATH 分隔符
+        path_sep = ":" if sys.platform != "win32" else ";"
         # 将 Node.js 目录添加到 PATH 最前面
-        env["PATH"] = node_dir + ";" + env["PATH"]
+        env["PATH"] = node_dir + path_sep + env["PATH"]
     else:
         print("⚠️ 未找到 Node.js 安装，使用系统 PATH")
     
@@ -52,11 +55,13 @@ def start_dev_server(frontend_dir, env):
     
     # 尝试启动开发服务器
     try:
+        # Linux 下不需要 shell=True，Windows 下需要
+        use_shell = sys.platform == "win32"
         process = subprocess.Popen(
             ["npm", "run", "dev"],
             cwd=frontend_dir,
             env=env,
-            shell=True
+            shell=use_shell
         )
         # 等待进程结束
         process.wait()
@@ -101,10 +106,11 @@ def start_backend():
     """启动后端服务"""
     try:
         # 确保使用新的认证后端
+        use_shell = sys.platform == "win32"
         subprocess.Popen(
             ["python", "backend/main.py"],
             cwd=Path(__file__).parent,
-            shell=True
+            shell=use_shell
         )
     except Exception as e:
         print(f"❌ 后端启动失败: {e}")
