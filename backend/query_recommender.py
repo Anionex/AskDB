@@ -89,6 +89,13 @@ class QueryRecommender:
 - 异常检查：查找异常值、边界情况
 - 趋势分析：查看变化趋势、增长率
 
+【严格格式要求】：
+1. 每条推荐必须是完整的中文句子，长度控制在 10-30 个字之间
+2. 禁止使用任何 Markdown 格式（如 **加粗**、`代码`、[链接]() 等）
+3. 禁止使用英文，全部使用中文
+4. 禁止输出不完整或被截断的句子
+5. 每条推荐必须是独立完整的问句，不能有省略号或未完成的内容
+
 输出格式：
 直接输出 3 行，每行一个推荐查询，不要编号，不要其他说明文字。
 例如：
@@ -149,34 +156,58 @@ AI 的回答: {current_answer[:500]}{'...' if len(current_answer) > 500 else ''}
         """
         从文本中提取推荐查询（每行一个）
         """
+        import re
         recommendations = []
-        
+
         # 按行分割
         lines = text.strip().split('\n')
-        
+
         for line in lines:
             line = line.strip()
-            
+
             # 跳过空行
             if not line:
                 continue
-            
+
             # 移除可能的编号和标记（如 "1. ", "- ", "• ", "> " 等）
             line = line.lstrip('0123456789.-、*>•· ')
-            
+
             # 移除引号
             line = line.strip('"\'`')
-            
+
             # 移除可能的markdown代码块标记
             if line.startswith('```'):
                 continue
-            
+
             # 过滤掉太短或明显不是推荐的内容
-            if len(line) > 5 and not line.startswith('推荐') and not line.startswith('例如'):
-                recommendations.append(line)
-                if len(recommendations) >= max_count:
-                    break
-        
+            if len(line) <= 5 or line.startswith('推荐') or line.startswith('例如'):
+                continue
+
+            # 过滤掉包含 Markdown 格式的内容
+            if re.search(r'\*\*|\*|`|\[.*\]\(.*\)|#{1,6}\s', line):
+                logger.warning(f"过滤掉包含 Markdown 的推荐: {line}")
+                continue
+
+            # 过滤掉包含英文字母的内容（允许少量英文如 SQL、API 等专有名词）
+            english_chars = len(re.findall(r'[a-zA-Z]', line))
+            if english_chars > 5:  # 超过5个英文字符则过滤
+                logger.warning(f"过滤掉包含过多英文的推荐: {line}")
+                continue
+
+            # 过滤掉不完整的句子（以省略号或其他截断符号结尾）
+            if line.endswith('...') or line.endswith('…') or line.endswith('..'):
+                logger.warning(f"过滤掉不完整的推荐: {line}")
+                continue
+
+            # 过滤掉过长的推荐（避免 UI 截断）
+            if len(line) > 50:
+                logger.warning(f"过滤掉过长的推荐: {line}")
+                continue
+
+            recommendations.append(line)
+            if len(recommendations) >= max_count:
+                break
+
         return recommendations
 
 
