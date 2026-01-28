@@ -120,9 +120,9 @@ class RegisterRequest(BaseModel):
     def validate_username(cls, v):
         if len(v) < 1 or len(v) > 50:
             raise ValueError('用户名长度必须在1-50字符之间')
-        # 允许纯数字（学号/工号）或字母数字下划线组合（管理员）
-        if not (re.match(r'^\d+$', v) or re.match(r'^[a-zA-Z0-9_]+$', v)):
-            raise ValueError('用户名必须是纯数字（学号/工号）或字母、数字、下划线组合')
+        # 用户名只允许字母、数字和下划线
+        if not re.match(r'^[a-zA-Z0-9_]+$', v):
+            raise ValueError('用户名只能包含字母、数字和下划线')
         return v
 
     @validator('password')
@@ -133,9 +133,25 @@ class RegisterRequest(BaseModel):
 
     @validator('user_type')
     def validate_user_type(cls, v):
-        if v not in ['student', 'teacher', 'manager']:
-            raise ValueError('用户类型必须是student、teacher或manager')
-        return v
+        # 禁止注册为 admin
+        if v.lower() == 'admin':
+            raise ValueError('不允许注册为 admin 用户类型')
+        
+        # 从 permissions.yaml 动态获取有效的用户类型
+        try:
+            from lib.permissions import get_permission_checker
+            checker = get_permission_checker()
+            valid_types = checker.config.get_valid_user_types(exclude_admin=True)
+            
+            if valid_types and v.lower() not in [t.lower() for t in valid_types]:
+                valid_types_str = '、'.join(valid_types)
+                raise ValueError(f'用户类型无效，有效的用户类型为: {valid_types_str}')
+        except ImportError:
+            # 如果无法导入权限模块，使用默认验证
+            if v not in ['student', 'teacher', 'manager']:
+                raise ValueError('用户类型必须是 student、teacher 或 manager')
+        
+        return v.lower()  # 统一转为小写
 
 class LoginRequest(BaseModel):
     username: str
@@ -927,6 +943,33 @@ async def public_health():
         "version": "2.0.0",
         "has_agent": HAS_AGENT
     }
+
+@app.get("/api/public/user-types")
+async def get_valid_user_types():
+    """
+    获取有效的用户类型列表（公开接口）
+    
+    返回 permissions.yaml 中配置的所有用户类型（排除 admin）
+    用于前端注册页面的用户类型验证和提示
+    """
+    try:
+        from lib.permissions import get_permission_checker
+        checker = get_permission_checker()
+        valid_types = checker.config.get_valid_user_types(exclude_admin=True)
+        
+        return {
+            "success": True,
+            "user_types": valid_types,
+            "message": f"有效的用户类型: {', '.join(valid_types)}"
+        }
+    except Exception as e:
+        logger.error(f"获取用户类型列表失败: {e}")
+        # 返回默认的用户类型
+        return {
+            "success": True,
+            "user_types": ["student", "teacher", "manager"],
+            "message": "使用默认用户类型列表"
+        }
 
 @app.post("/api/auth/send-code", response_model=CodeResponse)
 async def send_verification_code_endpoint(request: SendCodeRequest, background_tasks: BackgroundTasks):

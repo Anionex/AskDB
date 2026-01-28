@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react'
-import { Layout, Form, Input, Button, Card, Select, Space, message, Typography } from 'antd'
-import { UserOutlined, LockOutlined, MailOutlined, DatabaseOutlined, UserSwitchOutlined, CrownOutlined } from '@ant-design/icons'
+import { Layout, Form, Input, Button, Card, Select, Space, message, Typography, Alert, Tooltip } from 'antd'
+import { UserOutlined, LockOutlined, MailOutlined, DatabaseOutlined, UserSwitchOutlined, CrownOutlined, QuestionCircleOutlined } from '@ant-design/icons'
 import axios from 'axios'
 import { useAuthStore } from './store/useAuthStore'
 import { useChatStore } from './store/useChatStore'
@@ -21,6 +21,7 @@ function App() {
   const [countdown, setCountdown] = useState(0)
   const [registerForm] = Form.useForm()
   const [loginForm] = Form.useForm()
+  const [validUserTypes, setValidUserTypes] = useState(['student', 'teacher', 'manager'])
 
   useEffect(() => {
     checkAuth().then((authenticated) => {
@@ -29,6 +30,17 @@ function App() {
         fetchDatabaseStatus()
       }
     })
+    
+    // 获取有效的用户类型列表
+    axios.get(`${API_BASE}/public/user-types`)
+      .then(response => {
+        if (response.data.success && response.data.user_types) {
+          setValidUserTypes(response.data.user_types)
+        }
+      })
+      .catch(error => {
+        console.warn('获取用户类型列表失败，使用默认列表:', error)
+      })
   }, [])
 
   useEffect(() => {
@@ -163,57 +175,66 @@ function App() {
                 layout="vertical"
                 size="large"
               >
+                <Alert
+                  message="用户类型说明"
+                  description={
+                    <div style={{ fontSize: '12px' }}>
+                      <p style={{ margin: '4px 0' }}>请输入您的用户类型，当前有效的类型为：<strong>{validUserTypes.join('、')}</strong></p>
+                      <p style={{ margin: '4px 0', color: '#ff4d4f' }}>注意：admin 为系统保留类型，不可注册</p>
+                    </div>
+                  }
+                  type="info"
+                  showIcon
+                  style={{ marginBottom: '16px' }}
+                />
                 <Form.Item
-                  label="用户类型"
+                  label={
+                    <Space>
+                      <span>用户类型</span>
+                      <Tooltip title={`有效的用户类型: ${validUserTypes.join('、')}。不同类型具有不同的数据访问权限。`}>
+                        <QuestionCircleOutlined style={{ color: '#1890ff' }} />
+                      </Tooltip>
+                    </Space>
+                  }
                   name="userType"
-                  initialValue="student"
-                  rules={[{ required: true, message: '请选择用户类型' }]}
+                  rules={[
+                    { required: true, message: '请输入用户类型' },
+                    {
+                      validator: (_, value) => {
+                        if (!value) {
+                          return Promise.resolve()
+                        }
+                        const lowerValue = value.toLowerCase().trim()
+                        if (lowerValue === 'admin') {
+                          return Promise.reject(new Error('不允许注册为 admin 用户类型'))
+                        }
+                        if (!validUserTypes.map(t => t.toLowerCase()).includes(lowerValue)) {
+                          return Promise.reject(new Error(`无效的用户类型，有效类型为: ${validUserTypes.join('、')}`))
+                        }
+                        return Promise.resolve()
+                      }
+                    }
+                  ]}
                 >
-                  <Select>
-                    <Select.Option value="student">
-                      <Space>
-                        <UserOutlined />
-                        <span>学生</span>
-                      </Space>
-                    </Select.Option>
-                    <Select.Option value="teacher">
-                      <Space>
-                        <UserSwitchOutlined />
-                        <span>教师</span>
-                      </Space>
-                    </Select.Option>
-                    <Select.Option value="manager">
-                      <Space>
-                        <CrownOutlined />
-                        <span>管理员</span>
-                      </Space>
-                    </Select.Option>
-                  </Select>
+                  <Input 
+                    prefix={<UserSwitchOutlined />} 
+                    placeholder={`例如: ${validUserTypes[0] || 'student'}`}
+                    allowClear
+                  />
                 </Form.Item>
                 <Form.Item
                   name="username"
-                  label="学号/工号"
+                  label="用户名"
                   rules={[
-                    { required: true, message: '请输入学号或工号' },
-                    { pattern: /^\d+$/, message: '学号/工号必须为纯数字' }
+                    { required: true, message: '请输入用户名' },
+                    { min: 1, max: 50, message: '用户名长度需在1-50个字符之间' },
+                    { pattern: /^[a-zA-Z0-9_]+$/, message: '用户名只能包含字母、数字和下划线' }
                   ]}
-                  tooltip={
-                    registerForm.getFieldValue('userType') === 'student' 
-                      ? '请输入学号（纯数字，如：20230101）' 
-                      : registerForm.getFieldValue('userType') === 'teacher'
-                      ? '请输入工号（纯数字，如：1001）'
-                      : '请输入用户名'
-                  }
+                  tooltip="用户名用于登录，只能包含字母、数字和下划线"
                 >
-                  <Input 
-                    prefix={<UserOutlined />} 
-                    placeholder={
-                      registerForm.getFieldValue('userType') === 'student' 
-                        ? '学号（如：20230101）' 
-                        : registerForm.getFieldValue('userType') === 'teacher'
-                        ? '工号（如：1001）'
-                        : 'admin'
-                    }
+                  <Input
+                    prefix={<UserOutlined />}
+                    placeholder="请输入用户名"
                   />
                 </Form.Item>
                 <Form.Item
