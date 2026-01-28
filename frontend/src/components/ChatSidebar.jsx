@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import { Layout, Menu, Button, Input, Typography, Space, Tag, Popconfirm } from 'antd'
-import { 
+import {
   DeleteOutlined,
   EditOutlined,
   ThunderboltOutlined,
@@ -12,12 +12,14 @@ import {
   CrownOutlined,
   CheckCircleOutlined,
   CloseCircleOutlined,
-  SafetyOutlined
+  SafetyOutlined,
+  BookOutlined
 } from '@ant-design/icons'
 import { useChatStore } from '../store/useChatStore'
 import { useAuthStore } from '../store/useAuthStore'
 import { IndexManagement } from './IndexManagement'
 import { PermissionsManagement } from './PermissionsManagement'
+import { BusinessMetadataManagement } from './BusinessMetadataManagement'
 
 const { Sider } = Layout
 const { Text } = Typography
@@ -38,6 +40,7 @@ export const ChatSidebar = () => {
   const [searchText, setSearchText] = useState('')
   const [showIndexManagement, setShowIndexManagement] = useState(false)
   const [showPermissionsManagement, setShowPermissionsManagement] = useState(false)
+  const [showBusinessMetadata, setShowBusinessMetadata] = useState(false)
 
   useEffect(() => {
     if (user) {
@@ -181,6 +184,15 @@ export const ChatSidebar = () => {
               >
                 权限配置
               </Button>
+              <Button
+                type="default"
+                icon={<BookOutlined />}
+                onClick={() => setShowBusinessMetadata(true)}
+                block
+                style={{ marginTop: '8px' }}
+              >
+                术语配置
+              </Button>
             </>
           )}
           <Button
@@ -206,6 +218,12 @@ export const ChatSidebar = () => {
       <PermissionsManagement
         visible={showPermissionsManagement}
         onClose={() => setShowPermissionsManagement(false)}
+      />
+
+      {/* 术语配置管理对话框 */}
+      <BusinessMetadataManagement
+        visible={showBusinessMetadata}
+        onClose={() => setShowBusinessMetadata(false)}
       />
     </Sider>
   )

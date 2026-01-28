@@ -274,6 +274,14 @@ class PermissionsConfigResponse(BaseModel):
     message: Optional[str] = None
     enabled: Optional[bool] = None
 
+class BusinessMetadataResponse(BaseModel):
+    success: bool
+    data: Optional[Dict[str, Any]] = None
+    message: Optional[str] = None
+
+class BusinessMetadataUpdateRequest(BaseModel):
+    data: Dict[str, Any]  # 完整的 JSON 数据
+
 # 数据库初始化
 def init_database():
     """初始化用户数据库"""
@@ -1489,7 +1497,7 @@ async def update_permissions_config(
 async def reload_permissions_config(user: Dict = Depends(verify_token)):
     """
     重新加载权限配置（仅管理员）
-    
+
     从文件重新读取配置，不修改文件内容
     """
     if user["user_type"] != "manager":
@@ -1497,15 +1505,15 @@ async def reload_permissions_config(user: Dict = Depends(verify_token)):
             status_code=status.HTTP_403_FORBIDDEN,
             detail="只有管理员可以重新加载权限配置"
         )
-    
+
     try:
         from lib.permissions import reload_permissions, get_permission_checker
-        
+
         reload_permissions()
         checker = get_permission_checker()
-        
+
         logger.info(f"管理员 {user['username']} 重新加载了权限配置")
-        
+
         return {
             "success": True,
             "message": "权限配置已重新加载",
@@ -1516,6 +1524,154 @@ async def reload_permissions_config(user: Dict = Depends(verify_token)):
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"重新加载权限配置失败: {str(e)}"
+        )
+
+# ==================== 术语配置管理 API ====================
+
+BUSINESS_METADATA_PATH = Path(__file__).parent.parent / "data" / "business_metadata.json"
+
+@app.get("/api/protected/admin/business-metadata", response_model=BusinessMetadataResponse)
+async def get_business_metadata(user: Dict = Depends(verify_token)):
+    """
+    获取业务术语配置（仅管理员）
+
+    返回 data/business_metadata.json 的内容
+    """
+    if user["user_type"] != "manager":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="只有管理员可以查看术语配置"
+        )
+
+    try:
+        if not BUSINESS_METADATA_PATH.exists():
+            # 如果文件不存在，返回空的默认结构
+            return BusinessMetadataResponse(
+                success=True,
+                data={"business_terms": []},
+                message="术语配置文件不存在，已返回空配置"
+            )
+
+        with open(BUSINESS_METADATA_PATH, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+
+        return BusinessMetadataResponse(
+            success=True,
+            data=data,
+            message="术语配置获取成功"
+        )
+    except json.JSONDecodeError as e:
+        logger.error(f"解析术语配置文件失败: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"配置文件格式错误: {str(e)}"
+        )
+    except Exception as e:
+        logger.error(f"获取术语配置失败: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"获取术语配置失败: {str(e)}"
+        )
+
+@app.put("/api/protected/admin/business-metadata", response_model=BusinessMetadataResponse)
+async def update_business_metadata(
+    request: BusinessMetadataUpdateRequest,
+    user: Dict = Depends(verify_token)
+):
+    """
+    更新业务术语配置（仅管理员）
+
+    保存新的 business_metadata.json 配置
+
+    注意：
+    - 配置会立即生效
+    - 原配置会自动备份为 business_metadata.json.bak
+    """
+    if user["user_type"] != "manager":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="只有管理员可以修改术语配置"
+        )
+
+    try:
+        # 验证数据结构
+        if "business_terms" not in request.data:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="配置必须包含 'business_terms' 字段"
+            )
+
+        if not isinstance(request.data["business_terms"], list):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="'business_terms' 必须是数组"
+            )
+
+        # 备份原配置
+        if BUSINESS_METADATA_PATH.exists():
+            backup_path = BUSINESS_METADATA_PATH.with_suffix('.json.bak')
+            import shutil
+            shutil.copy2(BUSINESS_METADATA_PATH, backup_path)
+            logger.info(f"已备份原术语配置到: {backup_path}")
+
+        # 保存新配置
+        with open(BUSINESS_METADATA_PATH, 'w', encoding='utf-8') as f:
+            json.dump(request.data, f, ensure_ascii=False, indent=2)
+
+        logger.info(f"管理员 {user['username']} 更新了术语配置")
+
+        return BusinessMetadataResponse(
+            success=True,
+            data=request.data,
+            message="术语配置已更新"
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"更新术语配置失败: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"更新术语配置失败: {str(e)}"
+        )
+
+@app.get("/api/protected/admin/business-metadata/export")
+async def export_business_metadata(user: Dict = Depends(verify_token)):
+    """
+    导出业务术语配置为 JSON 文件（仅管理员）
+    """
+    if user["user_type"] != "manager":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="只有管理员可以导出术语配置"
+        )
+
+    try:
+        if not BUSINESS_METADATA_PATH.exists():
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="术语配置文件不存在"
+            )
+
+        with open(BUSINESS_METADATA_PATH, 'r', encoding='utf-8') as f:
+            content = f.read()
+
+        from fastapi.responses import Response
+
+        return Response(
+            content=content,
+            media_type="application/json",
+            headers={
+                "Content-Disposition": "attachment; filename=business_metadata.json"
+            }
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"导出术语配置失败: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"导出术语配置失败: {str(e)}"
         )
 
 # ==================== 索引管理 API ====================

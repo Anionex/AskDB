@@ -197,6 +197,32 @@ class PermissionConfig:
             logger.error(f"读取配置文件失败: {e}")
             return ""
     
+    def get_valid_user_types(self, exclude_admin: bool = True) -> List[str]:
+        """
+        获取配置中定义的所有有效用户类型
+        
+        Args:
+            exclude_admin: 是否排除 admin 类型（默认 True）
+            
+        Returns:
+            用户类型列表（去重后）
+        """
+        user_types = set()
+        
+        # 从 permissions 配置中提取所有 user_type
+        for table_perm in self.config.get("permissions", []):
+            for role in table_perm.get("roles", []):
+                user_type = role.get("user_type")
+                if user_type:
+                    user_types.add(user_type.lower())
+        
+        # 排除 admin（如果需要）
+        if exclude_admin:
+            user_types.discard("admin")
+        
+        # 返回排序后的列表，方便前端展示
+        return sorted(list(user_types))
+    
     def save_raw_yaml(self, yaml_content: str) -> Tuple[bool, str]:
         """
         保存原始YAML内容

@@ -179,7 +179,7 @@ function App() {
                   label="用户类型"
                   name="userType"
                   rules={[{ required: true, message: '请选择用户类型' }]}
-                  tooltip="不同类型具有不同的数据访问权限"
+                  tooltip="不同类型具有不同的数据访问权限，permissions.yaml中定义了不同用户类型及其权限"
                 >
                   <Select
                     placeholder="请选择用户类型"
