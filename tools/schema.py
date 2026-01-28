@@ -12,8 +12,6 @@ from typing import Dict, List, Optional, Tuple, Any, Union
 from dataclasses import dataclass, asdict
 from pathlib import Path
 import numpy as np
-from sentence_transformers import SentenceTransformer
-from scipy.spatial.distance import cosine
 from sqlalchemy import inspect, text
 from sqlalchemy.engine import Engine
 
@@ -297,11 +295,11 @@ class VectorSchemaIndex:
         
         Args:
             schema_explorer: Schema explorer instance
-            model_name: Sentence transformer model name
+            model_name: Sentence transformer model name (used for local embedding)
         """
         self.schema_explorer = schema_explorer
         self.model_name = model_name
-        self.model: Optional[SentenceTransformer] = None
+        self._embedding_service = None
         self.table_embeddings: Optional[np.ndarray] = None
         self.column_embeddings: Optional[np.ndarray] = None
         self.table_texts: List[str] = []
@@ -309,10 +307,11 @@ class VectorSchemaIndex:
         self._index_built = False
     
     def _load_model(self):
-        """Load the sentence transformer model."""
-        if self.model is None:
-            logger.info(f"Loading sentence transformer model: {self.model_name}")
-            self.model = SentenceTransformer(self.model_name)
+        """Load the embedding service."""
+        if self._embedding_service is None:
+            from tools.embedding_service import get_embedding_service
+            logger.info("Loading embedding service...")
+            self._embedding_service = get_embedding_service()
     
     def build_index(self, force_rebuild: bool = False):
         """
@@ -340,12 +339,12 @@ class VectorSchemaIndex:
             for column in table.columns:
                 self.column_texts.append(f"Table {table.name}: {column.to_text()}")
         
-        # Generate embeddings
+        # Generate embeddings using unified embedding service
         logger.info("Generating embeddings for tables...")
-        self.table_embeddings = self.model.encode(self.table_texts)
+        self.table_embeddings = self._embedding_service.encode(self.table_texts)
         
         logger.info("Generating embeddings for columns...")
-        self.column_embeddings = self.model.encode(self.column_texts)
+        self.column_embeddings = self._embedding_service.encode(self.column_texts)
         
         self._index_built = True
         logger.info("Vector schema index built successfully")
@@ -367,12 +366,16 @@ class VectorSchemaIndex:
         self._load_model()
         
         # Encode query
-        query_embedding = self.model.encode([query])
+        query_embedding = self._embedding_service.encode([query])
         
-        # Calculate similarities
+        # Calculate similarities using cosine similarity
         similarities = []
         for i, table_embedding in enumerate(self.table_embeddings):
-            similarity = 1 - cosine(query_embedding[0], table_embedding)
+            # Cosine similarity = dot(a, b) / (norm(a) * norm(b))
+            dot_product = np.dot(query_embedding[0], table_embedding)
+            norm_a = np.linalg.norm(query_embedding[0])
+            norm_b = np.linalg.norm(table_embedding)
+            similarity = dot_product / (norm_a * norm_b) if norm_a > 0 and norm_b > 0 else 0
             similarities.append((i, similarity))
         
         # Sort by similarity
@@ -404,12 +407,15 @@ class VectorSchemaIndex:
         self._load_model()
         
         # Encode query
-        query_embedding = self.model.encode([query])
+        query_embedding = self._embedding_service.encode([query])
         
-        # Calculate similarities
+        # Calculate similarities using cosine similarity
         similarities = []
         for i, column_embedding in enumerate(self.column_embeddings):
-            similarity = 1 - cosine(query_embedding[0], column_embedding)
+            dot_product = np.dot(query_embedding[0], column_embedding)
+            norm_a = np.linalg.norm(query_embedding[0])
+            norm_b = np.linalg.norm(column_embedding)
+            similarity = dot_product / (norm_a * norm_b) if norm_a > 0 and norm_b > 0 else 0
             similarities.append((i, similarity))
         
         # Sort by similarity

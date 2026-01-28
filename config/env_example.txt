@@ -42,17 +42,37 @@ DEFAULT_DB_PASSWORD=your_password
 # DEFAULT_DB_PASSWORD=your_password
 
 # ====================
+# Embedding Configuration
+# ====================
+
+# Embedding provider: "openai" (default) or "local"
+# - openai: 使用 OpenAI 格式的 embedding API（支持 OpenAI、Azure、或其他兼容服务）
+# - local: 使用本地 sentence-transformers 模型（需要安装 local-embedding 依赖）
+EMBEDDING_PROVIDER=openai
+
+# OpenAI Embedding 配置（当 EMBEDDING_PROVIDER=openai 时使用）
+# 如果不设置，会复用 OPENAI_API_KEY 和 OPENAI_BASE_URL
+# EMBEDDING_API_KEY=your_embedding_api_key_here
+# EMBEDDING_BASE_URL=https://api.openai.com/v1
+EMBEDDING_MODEL=text-embedding-3-small
+EMBEDDING_DIM=1536
+
+# 本地 Embedding 配置（当 EMBEDDING_PROVIDER=local 时使用）
+# 需要先安装: uv sync --extra local-embedding
+# LOCAL_EMBEDDING_MODEL=all-MiniLM-L6-v2
+
+# ====================
 # Feature Switches
 # ====================
 
-# Enable semantic table search (uses all-MiniLM-L6-v2 model)
-# Set to "true" to enable vector-based semantic search as described in AskDB paper
-# Set to "false" to use simple name matching (faster, no model download)
+# Enable semantic table search
+# Set to "true" to enable vector-based semantic search
+# Set to "false" to use simple name matching (faster)
 # Default: false
 ENABLE_SEMANTIC_SEARCH=false
 
 # Note: Enabling semantic search will:
-# - Download ~80MB sentence-transformers model on first run
+# - Use embedding service to encode schema information
 # - Build vector index for all tables (may take time for large databases)
 # - Enable intelligent table discovery (e.g., "customer" → "users" table)
 

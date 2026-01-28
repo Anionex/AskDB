@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Vector Store for Semantic Schema Search
-使用 ChromaDB 和 Sentence Transformers 实现语义检索
+支持本地模型和 OpenAI 格式 embedding API
 """
 
 import os
@@ -13,7 +13,7 @@ from pathlib import Path
 import chromadb
 from chromadb.config import Settings
 from sqlalchemy.engine import Engine
-from sqlalchemy import inspect, text
+from sqlalchemy import inspect
 
 logger = logging.getLogger(__name__)
 
@@ -43,9 +43,26 @@ class VectorStore:
         self.persist_directory = Path(persist_directory)
         self.persist_directory.mkdir(parents=True, exist_ok=True)
         
+        # 延迟初始化（等到实际使用时再初始化 embedding 服务）
+        self._client = None
+        self._tables_collection = None
+        self._columns_collection = None
+        self._business_terms_collection = None
+        self._embedding_function = None
+        self._initialized = False
+    
+    def _ensure_initialized(self):
+        """确保 ChromaDB 已初始化"""
+        if self._initialized:
+            return
+        
         try:
+            # 获取 embedding 函数（支持本地模型或第三方 API）
+            from tools.embedding_service import ChromaEmbeddingFunction
+            self._embedding_function = ChromaEmbeddingFunction()
+            
             # 初始化 ChromaDB 客户端
-            self.client = chromadb.PersistentClient(
+            self._client = chromadb.PersistentClient(
                 path=str(self.persist_directory),
                 settings=Settings(
                     anonymized_telemetry=False,
@@ -54,27 +71,61 @@ class VectorStore:
             )
             
             # 创建或获取集合 - 使用cosine相似度（最适合语义搜索）
-            # 注意：如果已有旧的collection使用L2距离，需要清空后重建才能生效
-            self.tables_collection = self.client.get_or_create_collection(
-                name="tables",
-                metadata={"hnsw:space": "cosine"}
-            )
+            # 使用自定义 embedding 函数
+            self._tables_collection = self._get_or_recreate_collection("tables")
+            self._columns_collection = self._get_or_recreate_collection("columns")
+            self._business_terms_collection = self._get_or_recreate_collection("business_terms")
             
-            self.columns_collection = self.client.get_or_create_collection(
-                name="columns",
-                metadata={"hnsw:space": "cosine"}
-            )
-            
-            self.business_terms_collection = self.client.get_or_create_collection(
-                name="business_terms",
-                metadata={"hnsw:space": "cosine"}
-            )
-            
+            self._initialized = True
             logger.info(f"✅ VectorStore initialized at {self.persist_directory}")
             
         except Exception as e:
             logger.error(f"Failed to initialize VectorStore: {e}")
             raise
+    
+    def _get_or_recreate_collection(self, name: str):
+        """获取或重建 collection（处理 embedding function 冲突）"""
+        try:
+            # 先尝试用自定义 embedding function 获取
+            return self._client.get_or_create_collection(
+                name=name,
+                metadata={"hnsw:space": "cosine"},
+                embedding_function=self._embedding_function
+            )
+        except ValueError as e:
+            if "embedding function" in str(e).lower() or "conflict" in str(e).lower():
+                # embedding function 冲突，删除旧的重建
+                logger.warning(f"Embedding function conflict for '{name}', recreating collection...")
+                try:
+                    self._client.delete_collection(name)
+                except Exception:
+                    pass
+                return self._client.create_collection(
+                    name=name,
+                    metadata={"hnsw:space": "cosine"},
+                    embedding_function=self._embedding_function
+                )
+            raise
+    
+    @property
+    def client(self):
+        self._ensure_initialized()
+        return self._client
+    
+    @property
+    def tables_collection(self):
+        self._ensure_initialized()
+        return self._tables_collection
+    
+    @property
+    def columns_collection(self):
+        self._ensure_initialized()
+        return self._columns_collection
+    
+    @property
+    def business_terms_collection(self):
+        self._ensure_initialized()
+        return self._business_terms_collection
     
     def get_index_stats(self) -> Dict[str, int]:
         """
@@ -438,14 +489,24 @@ class VectorStore:
     def clear_all_indexes(self):
         """清空所有索引"""
         try:
-            self.client.delete_collection("tables")
-            self.client.delete_collection("columns")
-            self.client.delete_collection("business_terms")
+            self._ensure_initialized()
+            self._client.delete_collection("tables")
+            self._client.delete_collection("columns")
+            self._client.delete_collection("business_terms")
             
             # 重新创建集合
-            self.tables_collection = self.client.get_or_create_collection("tables")
-            self.columns_collection = self.client.get_or_create_collection("columns")
-            self.business_terms_collection = self.client.get_or_create_collection("business_terms")
+            self._tables_collection = self._client.get_or_create_collection(
+                "tables",
+                embedding_function=self._embedding_function
+            )
+            self._columns_collection = self._client.get_or_create_collection(
+                "columns",
+                embedding_function=self._embedding_function
+            )
+            self._business_terms_collection = self._client.get_or_create_collection(
+                "business_terms",
+                embedding_function=self._embedding_function
+            )
             
             logger.info("✅ All indexes cleared")
         except Exception as e:
@@ -453,7 +514,7 @@ class VectorStore:
             raise
 
 
-# 创建全局实例
+# 创建全局实例（延迟初始化，实际使用时才会初始化 embedding 服务）
 vector_store = VectorStore()
 
 

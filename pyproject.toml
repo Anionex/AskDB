@@ -26,16 +26,14 @@ dependencies = [
     "agno>=0.1.0",
     # Core LLM and AI dependencies
     "openai>=1.0.0",
-    "google-generativeai",
+    "google-genai",  # Agno 框架需要新版 google-genai 而非 google-generativeai
     # Database connectivity and ORM
     "sqlalchemy>=2.0.0",
     "psycopg2-binary>=2.9.0",
     "pymysql>=1.1.0",
     # Vector operations and semantic search
-    "sentence-transformers>=2.2.0",
     "numpy>=1.24.0",
-    "scipy>=1.10.0",
-    "chromadb>=0.4.0",
+    "chromadb>=0.4.0",  # 向量数据库，支持第三方 embedding API
     # Data validation and configuration
     "pydantic>=2.0.0",
     "pydantic-settings>=2.0.0",
@@ -64,7 +62,14 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-# Optional dependencies for enhanced functionality
+# Local embedding - 本地 embedding 模型支持（需要下载模型和 torch，约 2GB+）
+# 安装方式: uv sync --extra local-embedding
+# 如果不安装此依赖，默认使用第三方 OpenAI 格式 embedding API
+local-embedding = [
+    "sentence-transformers>=2.2.0",  # 本地 embedding 模型（依赖 torch）
+    "scipy>=1.10.0",  # 向量计算
+]
+# FAISS 向量检索支持
 vector = [
     "faiss-cpu>=1.7.0",  # For efficient vector similarity search
 ]
@@ -76,6 +81,8 @@ dev = [
     "pytest-asyncio>=0.21.0",
 ]
 all = [
+    "sentence-transformers>=2.2.0",
+    "scipy>=1.10.0",
     "faiss-cpu>=1.7.0",
     "streamlit>=1.28.0",
     "pytest>=7.0.0",
