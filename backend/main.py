@@ -66,6 +66,10 @@ JWT_SECRET_KEY = os.getenv("JWT_SECRET_KEY", "askdb-jwt-secret-key-please-change
 JWT_ALGORITHM = "HS256"
 JWT_EXPIRATION_DAYS = 30  # JWT令牌有效期30天
 
+# Admin配置
+# 默认管理员密码，可通过环境变量配置
+ADMIN_DEFAULT_PASSWORD = os.getenv("ADMIN_DEFAULT_PASSWORD", "admin123")
+
 # 数据库配置
 DB_PATH = Path(__file__).parent.parent / "data" / "users.db"
 DB_PATH.parent.mkdir(parents=True, exist_ok=True)
@@ -355,12 +359,12 @@ def init_database():
     # 创建默认管理员账户（如果不存在）
     cursor.execute('SELECT * FROM users WHERE username = ?', ('admin',))
     if not cursor.fetchone():
-        password_hash = hash_password('admin123')
+        password_hash = hash_password(ADMIN_DEFAULT_PASSWORD)
         cursor.execute('''
-            INSERT INTO users (username, email, password_hash, user_type) 
+            INSERT INTO users (username, email, password_hash, user_type)
             VALUES (?, ?, ?, ?)
         ''', ('admin', 'admin@askdb.com', password_hash, 'manager'))
-        logger.info("创建默认管理员账户: admin/admin123")
+        logger.info(f"创建默认管理员账户: admin/{'*' * len(ADMIN_DEFAULT_PASSWORD)}")
     
     conn.commit()
     conn.close()
